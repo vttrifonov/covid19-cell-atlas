@@ -13,24 +13,13 @@ function s3_upload() {
   aws s3 cp - $s3/$name
 }
 
-function upload1() {
+function download1() {
   local name=$1
   local ext=$2
   local url=$( cat input/$name.url )
-
-  s3_exists $name.$ext && return 0
-  curl -L $url | s3_upload $name.$ext
+  [ -f $cache/$name.$ext ] && return 0
+  curl -L $url  > $cache/$name.$ext
 }
-
-function download1() {
-  local name=$1
-  [ -f $cache/$name ] && return 0
-  aws s3 cp $s3/$name - > $cache/$name
-}
-
-upload1 mgh h5ad
-upload1 nih-adaptive h5ad
-upload1 nih-innate h5ad
 
 download1 mgh.h5ad
 download1 nih-adaptive.h5ad
