@@ -47,10 +47,13 @@ def _():
     @cached_property(type=Dir.csv)
     def meta_meta(self):
         meta = self.meta
-        meta = meta[['variable', 'dataset']]
+        meta = meta[['variable', 'value', 'dataset']]
         meta = meta.drop_duplicates()
-        meta['x'] = 1
-        meta = meta.pivot_table(index='variable', columns=['dataset'], values='x', fill_value=0)
+        meta = meta[['variable', 'dataset']]
+        meta = meta.value_counts().rename('count').reset_index()
+        meta = meta.query('count>1 & count<100')
+        meta = meta.pivot_table(index='variable', columns=['dataset'], values='count', fill_value=0, aggfunc='sum')
+        meta = meta.reset_index()
         return meta
     Atlas.meta_meta = meta_meta
 _()
