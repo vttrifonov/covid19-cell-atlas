@@ -17,11 +17,12 @@ function download1() {
   local name=$1
   local ext=$2
   local url=$( cat input/$name.url )
-  [ -f $cache/$name.$ext ] && return 0
-  curl -L $url  > $cache/$name.$ext
+  [ -f $cache/data/$name.$ext ] && return 0
+  mkdir -p $cache/data
+  curl -L $url  > $cache/data/$name.$ext
 }
 
-download1 mgh.h5ad
-download1 nih-adaptive.h5ad
-download1 nih-innate.h5ad
+download1 mgh h5ad
+download1 nih-adaptive h5ad
+download1 nih-innate h5ad
 

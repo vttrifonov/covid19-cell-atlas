@@ -1,6 +1,8 @@
 from pathlib import Path
-from common.defs import lazy_property
+from common.defs import lazy_property, lazy_method
+from common.dir import Dir, cached_property
 import scanpy
+import pandas as pd
 
 cache = Path('.cache')
 
@@ -9,32 +11,53 @@ def _cat(file):
         for line in file:
             yield line.rstrip()
 
-class Data:
+class Atlas:
     pass
 
 def _():
     @lazy_property
-    def mgh(self):
-        return scanpy.read(cache/'mgh.h5ad')
-    Data.mgh = mgh
+    def storage(self):
+        return Dir(cache/'data')
+    Atlas.storage = storage
+
+    def scanpy_read(self, name):
+        return scanpy.read(Path(self.storage.path)/f'{name}.h5ad')
+    Atlas.scanpy_read = scanpy_read
+
+    Atlas.datasets = ['mgh', 'nih-adaptive', 'nih-innate']
+
+    @lazy_method(key=lambda name: name)
+    def data(self, name):
+        return self.scanpy_read(name)
+    Atlas.data = data
 
     @lazy_property
-    def nih_adaptive(self):
-        return scanpy.read(cache/'nih-adaptive.h5ad')
-    Data.nih_adaptive = nih_adaptive
+    @cached_property(type=Dir.csv)
+    def meta(self):
+        meta = [(name, self.data(name).obs) for name in self.datasets]
+        meta = [
+            data.melt().value_counts().rename('count').reset_index().assign(dataset=name)
+            for name, data in meta
+        ]
+        meta = pd.concat(meta)
+        return meta
+    Atlas.meta = meta
 
     @lazy_property
-    def nih_innate(self):
-        return scanpy.read(cache/'nih-innate.h5ad')
-    Data.nih_innate = nih_innate
+    @cached_property(type=Dir.csv)
+    def meta_meta(self):
+        meta = self.meta
+        meta = meta[['variable', 'dataset']]
+        meta = meta.drop_duplicates()
+        meta['x'] = 1
+        meta = meta.pivot_table(index='variable', columns=['dataset'], values='x', fill_value=0)
+        return meta
+    Atlas.meta_meta = meta_meta
 _()
 
-covid19_cell_atlas = Data()
+covid19_cell_atlas = Atlas()
 
 self = covid19_cell_atlas
 
-self.mgh.var
-
-self.nih_innate.var
-
-x = set(self.mgh.var.index) & set(self.nih_innate.var)
+self.meta
+self.meta_meta
