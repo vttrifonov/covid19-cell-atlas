@@ -10,6 +10,10 @@ import xarray as xa
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.spatial.distance import squareform
 
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 500)
+pd.set_option('display.width', 1000)
+
 cache = Path('.cache')
 
 def _cat(file):
@@ -191,6 +195,17 @@ covid19_cell_atlas = Atlas()
 
 self = covid19_cell_atlas
 
+d = self.data1['nih-adaptive']
+d = pd.DataFrame(dict(
+    cell_type = d.obs.cell_type,
+    umap_x = d.obsm['X_umap'][:,0],
+    umap_y = d.obsm['X_umap'][:,1]
+))
+d['cell_type'] = d.cell_type.cat.remove_unused_categories()
+sb.scatterplot(data=d, x='umap_x', y='umap_y', hue='cell_type', linewidth=0, size=5)
+plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
+plt.tight_layout()
+
 d1 = self.data1
 d1 = [v.obs[['donor', 'covid', 'cell_type']].assign(source=k[:3]) for k, v in d1.items()]
 d1 = pd.concat(d1)
@@ -273,12 +288,36 @@ ax.set_yticklabels(_.index)
 ax.set_xlabel('Number of MGH-NIH cell type pairs')
 plt.subplots_adjust(left=0.3)
 
-self.covid_genes.query('rk<100').query('value=="GSTM1"').sort_values('rk')[['variable', 'rk']]
+self.covid_genes.query('rk<100').query('value=="OAS3"').sort_values('rk')[['variable', 'rk']]
+
+import ncbi.sql as ncbi
+from scipy.stats import hypergeom
+
+go = ncbi.query((
+    'select a."Symbol" as gene, b."GO_term" as term'
+    ' from gene_info as a' 
+	' join gene2go as b on (a."GeneID"=b."GeneID")' 
+    ' where b.tax_id=9606'
+), schema='homo_sapiens')
+go = go[go.gene.isin(self.covid_genes.value.drop_duplicates())]
+d5 = d4[d4.index.isin(go.gene)].query('cross>0').reset_index()
+d5 = d5.merge(go, how='left', left_on='value', right_on='gene')
+d6 = d5.groupby('term').size().rename('x').to_frame()
+d6 = d6.join(go.groupby('term').size().rename('m'))
+d6['k'] = d5.value.drop_duplicates().shape[0]
+d6['n'] = go.gene.drop_duplicates().shape[0]
+d6['e'] = (d6.m*d6.k/d6.n).astype(int)
+def _(x, n, m, k):
+    hg = hypergeom(n, m, k)
+    return hg.sf(x)+hg.pmf(x)
+d6['p'] = [_(row.x, row.n, row.m, row.k) for row in d6.itertuples()]
+d6 = d6.sort_values('p', ascending=True)
+
+d5[d5.term.str.find('interferon')>=0][['value', 'mgh', 'nih', 'cross']].drop_duplicates().sort_values('cross', ascending=False)
 
 def _():
     self.meta
     self.meta_meta
-
 
 def _():
     d = self.data('mgh')
@@ -314,3 +353,4 @@ def _():
     scanpy.pl.rank_genes_groups(d1, n_genes=25, sharey=False)
     x1 = pd.DataFrame(d1.uns['rank_genes_groups']['names']).head(5).melt()['value'].drop_duplicates()
     scanpy.pl.stacked_violin(d1, x1, groupby='covid_cat', rotation=90)
+
