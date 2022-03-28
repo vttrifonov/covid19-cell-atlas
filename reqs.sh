@@ -9,4 +9,4 @@ conda install xarray
 conda install scanpy
 conda install plotnine
 conda install sparse
-conda install dask
+conda install dask==2021.10.0
