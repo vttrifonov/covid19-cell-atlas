@@ -4,3 +4,5 @@
 env
 __pycache__
 covid19_cell_atlas
+.vscode
+dask-worker-space
