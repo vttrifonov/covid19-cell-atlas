@@ -29,17 +29,14 @@ def _():
         return paper.metadata
     _analysis2.metadata = metadata
     
-    @compose(property, lazy)
+    @property
     def cytokines(self):
         return paper.cytokines
     _analysis2.cytokines = cytokines
         
-    @compose(property, lazy, XArrayCache())
+    @property
     def obs(self):
-        o = self.dataset.data.obs
-        o['sample'] = o.donor.astype(str) + '_' + o.timepoint.astype(str)
-        o = o.to_xarray().rename(index='cell')        
-        return o
+        return self.dataset.obs
     _analysis2.obs = obs
 
     @compose(property, lazy, XArrayCache())
