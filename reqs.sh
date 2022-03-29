@@ -14,3 +14,4 @@ conda install mysql-connector-python
 
 pip install rpy2
 pip install --ignore-installe cffi #this might conflict with scanpy
+conda install radian
