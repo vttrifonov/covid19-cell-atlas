@@ -2,7 +2,7 @@
 #%%
 
 if __name__=='__main__':
-    __package__ = 'covid19_cell_atlas'
+    __package__ = 'covid19_cell_atlas._analysis3'
 
 from pathlib import Path
 import pandas as pd
@@ -10,7 +10,6 @@ import numpy as np
 import xarray as xa
 from pathlib import Path
 
-from . import nih_innate
 from .common.caching import lazy, XArrayCache, compose, CSVCache
 from .helpers import config
 from .covid19_time_resolved_paper import data as paper
@@ -21,7 +20,6 @@ from ._analysis2 import analysis2
 
 class _analysis3:
     storage = Path(config.cache)/'analysis3'
-    dataset = nih_innate
 
     @property
     def metadata(self):
