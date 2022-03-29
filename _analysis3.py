@@ -2,7 +2,7 @@
 #%%
 
 if __name__=='__main__':
-    __package__ = 'covid19_cell_atlas._analysis3'
+    __package__ = 'covid19_cell_atlas'
 
 from pathlib import Path
 import pandas as pd
@@ -134,7 +134,6 @@ if __name__ == '__main__':
 
 #%%
     x3 = self.app1_plot1_data(['IL-6'])
-
     print(        
         ggplot(x3)+aes('days_since_onset', 'np.log1p(level)/np.log(10)')+
             geom_point(aes(fill='DSM_group'), alpha=0.5)+
@@ -146,7 +145,7 @@ if __name__ == '__main__':
     )
 
 #%%
-    x2 = self.app1_plot2_data('IL18BP')
+    x2 = self.app1_plot2_data('IL6')
     print(        
         ggplot(x2)+aes('days_since_onset', 'np.log1p(X)/np.log(2)')+
             geom_point(aes(fill='dsm_severity_score_group'), alpha=0.5)+
@@ -158,7 +157,7 @@ if __name__ == '__main__':
     )
 
 #%%
-    x2 = x1[x1.dsm_severity_score_group!='']
+    x2 = self.app1_plot3_data('IL18BP')
     print(        
         ggplot(x2)+aes('days_since_onset', 'np.log1p(X)/np.log(2)')+
             geom_point(aes(fill='dsm_severity_score_group'), alpha=0.5)+
