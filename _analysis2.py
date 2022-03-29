@@ -10,29 +10,29 @@ import numpy as np
 import xarray as xa
 from pathlib import Path
 
-from . import nih_innate
+from . import nih_adaptive
 from .common.caching import lazy, XArrayCache, compose, CSVCache
 from .helpers import config
 from .covid19_time_resolved_paper import data as paper
 
 #%%
 
-class _analysis1:
+class _analysis2:
     pass
 
 def _():
-    _analysis1.storage = Path(config.cache)/'analysis1'
-    _analysis1.dataset = nih_innate
+    _analysis2.storage = Path(config.cache)/'analysis2'
+    _analysis2.dataset = nih_adaptive
 
     @property
     def metadata(self):
         return paper.metadata
-    _analysis1.metadata = metadata
+    _analysis2.metadata = metadata
     
     @compose(property, lazy)
     def cytokines(self):
         return paper.cytokines
-    _analysis1.cytokines = cytokines
+    _analysis2.cytokines = cytokines
         
     @compose(property, lazy, XArrayCache())
     def obs(self):
@@ -40,7 +40,7 @@ def _():
         o['sample'] = o.donor.astype(str) + '_' + o.timepoint.astype(str)
         o = o.to_xarray().rename(index='cell')        
         return o
-    _analysis1.obs = obs
+    _analysis2.obs = obs
 
     @compose(property, lazy, XArrayCache())
     def X2(self):
@@ -67,7 +67,7 @@ def _():
             return mat
         mat = self.obs.groupby('cell_type').apply(_)
         return mat
-    _analysis1.X2 = X2
+    _analysis2.X2 = X2
 
     @compose(property, lazy)
     def data1(self):
@@ -79,9 +79,9 @@ def _():
         x1 = xa.merge([self.X2.drop('n'), x2])
         x1 = x1.to_dataframe().reset_index()
         x1 = x1[~x1.X.isna()].copy()
-        x1['X'] = 1e6*x1.X/x1.groupby(['sample']).X.transform('sum')
+        #x1['X'] = 1e6*x1.X/x1.groupby(['sample']).X.transform('sum')
         return x1
-    _analysis1.data1 = data1
+    _analysis2.data1 = data1
 
     def data2(self, gene):
         x2 = self.obs[['severity', 'outcome', 'sample']].to_dataframe()
@@ -122,15 +122,15 @@ def _():
         x1 = x1.merge(x4, left_on=['donor'], right_on=['DonorID'], how='left')
         x1['days'] = x1.days.where(x1.timepoint!='HC', 0)
         return x1
-    _analysis1.data2 = data2
+    _analysis2.data2 = data2
 _()
 
-analysis1 = _analysis1()
+analysis2 = _analysis2()
 
 #%%
 if __name__ == '__main__':
     from plotnine import *
-    self = analysis1
+    self = analysis2
 
 #%%
     x1 = self.cytokines
