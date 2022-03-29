@@ -6,3 +6,6 @@ __pycache__
 covid19_cell_atlas
 .vscode
 dask-worker-space
+.Rproj.user
+*.Rproj
+renv
