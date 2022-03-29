@@ -4,3 +4,9 @@
 [submodule "ncbi"]
 	path = ncbi
 	url = ../ncbi.git
+[submodule "ensembl"]
+	path = ensembl
+	url = ../ensembl
+[submodule "covid19_time_resolved_paper"]
+	path = covid19_time_resolved_paper
+	url = ../covid19-time-resolved-paper
