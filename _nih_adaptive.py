@@ -13,27 +13,27 @@ from .common.caching import lazy, compose, XArrayCache
 #%%
 def _data1():
     d = scanpy.read(
-        config.cache/'data'/'nih-innate.h5ad',
+        config.cache/'data'/'nih-adaptive.h5ad',
         backed='r'
     )
     return d
 
 def _data2():
     d = scanpy.read(
-        config.cache/'data'/'nih-innate.h5ad'
+        config.cache/'data'/'nih-adaptive.h5ad'
     )
     return d
 
-class _nih_innate:
+class _nih_adaptive:
     pass
 
 def _():
-    _nih_innate.storage = config.cache/'nih-innate'
+    _nih_adaptive.storage = config.cache/'nih-adaptive'
 
     @compose(property, lazy)
     def data(self):
         return _data1()
-    _nih_innate.data = data
+    _nih_adaptive.data = data
 
     @compose(property, lazy)
     def X1(self):
@@ -41,12 +41,13 @@ def _():
         if storage.exists():
             x = sparse.load_npz(storage)
             return x
-
+                    
         x = _data2().X
         x = sparse.COO.from_scipy_sparse(x)
+        storage.parent.mkdir(parents=True, exist_ok=True)
         sparse.save_npz(storage, x)
         return x
-    _nih_innate.X1 = X1
+    _nih_adaptive.X1 = X1
 
     @compose(property, lazy, XArrayCache())
     def var_ensembl(self):
@@ -65,14 +66,14 @@ def _():
         annot = annot[annot['var'].isin(self.data.var_names)]
         annot = annot.set_index('var').to_xarray()
         return annot
-    _nih_innate.var_ensembl = var_ensembl
+    _nih_adaptive.var_ensembl = var_ensembl
 _()
 
-nih_innate = _nih_innate()
+nih_adaptive = _nih_adaptive()
 
 #%%
 if __name__=='__main__':
-    self = nih_innate
+    self = nih_adaptive
 
 #%%
     import sparse
