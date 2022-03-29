@@ -20,21 +20,16 @@ from ._analysis2 import analysis2
 #%%
 
 class _analysis3:
-    pass
-
-def _():
-    _analysis3.storage = Path(config.cache)/'analysis3'
-    _analysis3.dataset = nih_innate
+    storage = Path(config.cache)/'analysis3'
+    dataset = nih_innate
 
     @property
     def metadata(self):
         return paper.metadata
-    _analysis3.metadata = metadata
     
     @compose(property, lazy)
     def cytokines(self):
         return paper.cytokines
-    _analysis3.cytokines = cytokines
         
     @property
     def obs(self):
@@ -48,7 +43,6 @@ def _():
 
         o = xa.merge([o1, o2])
         return o
-    _analysis3.obs = obs
 
     @property
     def X2(self):
@@ -59,14 +53,6 @@ def _():
         x2['sample'] = x2.sample + '_adaptive'
         x = xa.concat([x1, x2], dim='sample')
         return x
-    _analysis3.X2 = X2
-
-    @compose(property, lazy)
-    def X3(self):
-        x1 = self.X2.X
-        x1 = 1e6*x1/x1.sum(dim=['cell_type', 'gene'])
-        return x1
-    _analysis3.X3 = X3
 
     def data2(self, gene):
         x2 = self.obs[['severity', 'outcome', 'dsm_severity_score', 'dsm_severity_score_group']].to_dataframe()
@@ -99,8 +85,47 @@ def _():
         x1 = x1.merge(x3, on='sample')
         x1 = x1.merge(x2, on='donor')
         return x1
-    _analysis3.data2 = data2
-_()
+
+    @property
+    def app1_genes(self):
+        x1 = self.cytokines
+        return x1.cytokine.to_series().drop_duplicates().to_list()
+
+    @property
+    def app1_genes1(self):
+        return self.X2.X.gene.data
+
+    def app1_plot1_data(self, gene):
+        x1 = self.cytokines
+        x1 = x1.sel(subject_test_day=x1.cytokine.isin([gene]))
+        x1 = x1.to_dataframe().reset_index(drop=True)
+
+        x2 = self.metadata.DSM_group.to_dataframe().reset_index()
+
+        x3 = x1.merge(x2, left_on='DonorID', right_on='donor')
+        del x3['DonorID']
+        x3 = x3.rename(columns={'days_from_symptom_onset_to_test': 'days_since_onset'})
+        x3 = x3[~x3.DSM_group.isna()]
+        x3 = x3[x3.days_since_onset<=40]        
+        return x3
+
+    def app1_plot2_data(self, gene):
+        x1 = self.data2(gene)
+        x2 = x1[[
+            'donor', 'days_since_onset', 'status', 
+            'dsm_severity_score_group',
+            'gene', 'subset',         
+            'X'
+        ]]
+        x2 = x2[x2.dsm_severity_score_group!='']
+        x2 = x2.groupby(list(set(x2.columns)-set(['X'])), observed=True)
+        x2 = x2.X.sum().reset_index()
+        return x2
+
+    def app1_plot3_data(self, gene):
+        x1 = self.data2(gene)
+        x1 = x1[x1.dsm_severity_score_group!='']
+        return x1
 
 analysis3 = _analysis3()
 
@@ -110,16 +135,7 @@ if __name__ == '__main__':
     self = analysis3
 
 #%%
-    x1 = self.cytokines
-    x1 = x1.sel(subject_test_day=x1.cytokine.isin(['IL-6']))
-    x1 = x1.to_dataframe().reset_index(drop=True)
-
-    x2 = self.metadata.DSM_group.to_dataframe().reset_index()
-
-    x3 = x1.merge(x2, left_on='DonorID', right_on='donor')
-    x3 = x3.rename(columns={'days_from_symptom_onset_to_test': 'days_since_onset'})
-    x3 = x3[~x3.DSM_group.isna()]
-    x3 = x3[x3.days_since_onset<=40]
+    x3 = self.app1_plot1_data(['IL-6'])
 
     print(        
         ggplot(x3)+aes('days_since_onset', 'np.log1p(level)/np.log(10)')+
@@ -132,18 +148,7 @@ if __name__ == '__main__':
     )
 
 #%%
-    x1 = self.data2('IL18BP')
-
-#%%
-    x2 = x1[[
-        'donor', 'days_since_onset', 'status', 
-        'dsm_severity_score_group',
-        'gene', 'subset',         
-        'X'
-    ]]
-    x2 = x2[x2.dsm_severity_score_group!='']
-    x2 = x2.groupby(list(set(x2.columns)-set(['X'])), observed=True)
-    x2 = x2.X.sum().reset_index()
+    x2 = self.app1_plot2_data('IL18BP')
     print(        
         ggplot(x2)+aes('days_since_onset', 'np.log1p(X)/np.log(2)')+
             geom_point(aes(fill='dsm_severity_score_group'), alpha=0.5)+
