@@ -8,7 +8,7 @@ import xarray as xa
 import numpy as np
 import sparse
 from .helpers import config
-from .common.caching import lazy, compose, XArrayCache
+from .common.caching import lazy, compose, XArrayCache, SparseCache
 
 #%%
 def _data1():
@@ -35,16 +35,10 @@ def _():
         return _data1()
     _nih_innate.data = data
 
-    @compose(property, lazy)
+    @compose(property, lazy, SparseCache())
     def X1(self):
-        storage = self.storage/'X1.npz'
-        if storage.exists():
-            x = sparse.load_npz(storage)
-            return x
-
         x = _data2().X
         x = sparse.COO.from_scipy_sparse(x)
-        sparse.save_npz(storage, x)
         return x
     _nih_innate.X1 = X1
 
@@ -73,13 +67,5 @@ nih_innate = _nih_innate()
 #%%
 if __name__=='__main__':
     self = nih_innate
-
-#%%
-    import sparse
-    x1 = self.X.map_blocks(
-        lambda x: x.sum(keepdims=True), 
-        meta=sparse.zeros((0,0), dtype=self.X.dtype)
-    )
-    x1 = x1.compute()
 
 # %%
