@@ -9,12 +9,7 @@ source('helpers.R')
 ui <- {
   fluidPage(
     fluidRow(
-        selectizeInput(
-            'cytokines',
-            'Select cytokines',
-            choices=NULL,
-            multiple=TRUE
-        )
+        DTOutput('cytokines')
     ),
     fluidRow(
         column(7,
@@ -56,6 +51,7 @@ server <- function(input, output, session) {
                 py_to_r() %>%
                 data.table
         genes <- genes[!is.na(`Pr(>F)`)]
+        genes <- genes[order(q)]
         genes <- genes[, list(
             subset, gene,
             `Pr(>F)`, q, F,
@@ -70,8 +66,28 @@ server <- function(input, output, session) {
             genes[[c]] <- round(genes[[c]], 2)
         }
 
+        cytokines <- py_eval('analysis.fit2.to_dataframe().reset_index()') %>%
+                py_to_r() %>%
+                data.table
+        cytokines <- cytokines[!is.na(`Pr(>F)`)]
+        cytokines <- cytokines[order(q)]
+        cytokines <- cytokines[, list(
+            cytokine,
+            `Pr(>F)`, q, F,
+            Intercept,
+            days_since_onset,
+            `dsm_severity_score_group[T.DSM_low]`,
+            `days_since_onset:dsm_severity_score_group[T.DSM_low]` 
+        )]
+        cytokines[, `Pr(>F)` := round_mantisa(`Pr(>F)`, 1)]
+        cytokines[, q := round_mantisa(q, 1)]
+        for(c in setdiff(names(cytokines), c('q', 'Pr(>F)', 'cytokine'))) {
+            cytokines[[c]] <- round(cytokines[[c]], 2)
+        }
+
         plot1 <- reactive({
-            cytokines <- req(input$cytokines)
+            row <- req(input$cytokines_rows_selected)
+            cytokines <- cytokines$cytokine[row]
             data <- analysis$app1_plot1_data(cytokines) %>% data.table
             data <- data[days_since_onset<=40]
             ggplot(data)+
@@ -114,14 +130,16 @@ server <- function(input, output, session) {
     }
 
     {
-        updateSelectizeInput(
-            session, 'cytokines',
-            choices = analysis$app1_cytokines,
-            server = TRUE
+        output$cytokines <- renderDT(
+            cytokines %>%
+                datatable_scroller(
+                    filter = 'top', selection = 'multiple',
+                    options = list(dom = 't')
+                )
         )
 
         output$plot1.ui <- renderUI({
-            cytokines <- req(input$cytokines)
+            cytokines <- req(input$cytokines_rows_selected)
             plotOutput('plot1', height=200*length(cytokines))
         })
 
