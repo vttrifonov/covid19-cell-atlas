@@ -211,7 +211,7 @@ if __name__ == '__main__':
         ggplot(x3)+aes('days_since_onset', 'np.log1p(level)/np.log(10)')+
             geom_point(aes(fill='DSM_group'), alpha=0.5)+
             geom_line(aes(group='donor'), alpha=0.1)+
-            geom_smooth(aes(color='DSM_group'), alpha=0.5)+
+            geom_smooth(aes(color='DSM_group'), alpha=0.5, method='lm')+
             facet_grid('cytokine~.', scales='free')+
             theme(figure_size=(6, 4))+
             labs(y='log2(pg/mL)')
