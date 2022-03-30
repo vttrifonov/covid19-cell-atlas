@@ -43,26 +43,43 @@ server <- function(input, output, session) {
             input <- list(genes=c('IL-6'), genes1=c('IL6'))
         }
 
-        analysis <- import('covid19_cell_atlas._analysis3')$analysis3
+        py_run_string('from covid19_cell_atlas._analysis3 import analysis3 as analysis')
+        analysis <- py_eval('analysis')
 
-        genes1 <- py_eval('r.analysis.fit1.to_dataframe().reset_index()') %>%
+        round_mantisa <- function(x, n=1) {
+            x1 <- floor(log10(x))
+            x2 <- ceiling(x*10^(n-x1))/10^n
+            x2*10^x1
+        }
+        genes1 <- py_eval('analysis.fit1.to_dataframe().reset_index()') %>%
                 py_to_r() %>%
                 data.table
+
         genes1 <- genes1[!is.na(`Pr(>F)`)]
+        genes1 <- genes1[, list(
+            subset, gene,
+            `Pr(>F)`, q, F,
+            Intercept,
+            days_since_onset,
+            `dsm_severity_score_group[T.DSM_low]`,
+            `days_since_onset:dsm_severity_score_group[T.DSM_low]` 
+        )]
+        genes1[, `Pr(>F)` := round_mantisa(`Pr(>F)`, 1)]
+        genes1[, q := round_mantisa(q, 1)]
+        for(c in setdiff(names(genes1), c('q', 'Pr(>F)', 'subset', 'gene'))) {
+            genes1[[c]] <- round(genes1[[c]], 2)
+        }
+
+
 
         plot1 <- reactive({
             genes <- req(input$genes)
             data <- analysis$app1_plot1_data(genes) %>% data.table
-            f1<-lm(log2(level)~DSM_group, data=data)
-            model.matrix(log2(level)~poly(days_since_onset,1)*DSM_group, data=data)
-            anova(f1, f2)
-
-
             ggplot(data)+
                 aes(x=days_since_onset, y=log2(level))+
                 geom_line(aes(group=donor), alpha=0.1)+
                 geom_point(aes(fill=DSM_group), alpha=0.5, size=2, pch=21)+
-                geom_smooth(aes(color=DSM_group), alpha=0.5, formula='y~poly(x, 1)', method='lm')+
+                geom_smooth(aes(color=DSM_group), alpha=0.5, formula='y~x', method='lm')+
                 facet_grid(cytokine~., scales='free')+
                 labs(y='log2(pg/mL)')
         })
