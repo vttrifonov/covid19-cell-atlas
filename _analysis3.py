@@ -9,6 +9,13 @@ import pandas as pd
 import numpy as np
 import xarray as xa
 from pathlib import Path
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from statsmodels.stats.anova import anova_lm
+from statsmodels.stats.multitest import multipletests
+from dask import delayed, compute
+from dask.distributed import LocalCluster, Client
+
 
 from .common.caching import lazy, XArrayCache, compose, CSVCache
 from .helpers import config
@@ -40,16 +47,38 @@ class _analysis3:
         o2['subset'] = ('sample', ['adaptive']*o2.sizes['sample'])
 
         o = xa.merge([o1, o2])
-        return o
+
+        x2 = o.drop_dims(['sample', 'cell'])
+        x2 = x2.rename(donor='DonorID')
+        x3 = np.where(
+            x2.severity=='', 'Control',
+            x2.severity+'-'+x2.outcome
+        )
+        x2['status'] = ('DonorID', x3)
+        x2 = x2.to_dataframe().reset_index()
+
+        x3 = o.drop_dims(['donor', 'cell'])
+        _ = x3.days_since_onset
+        _ = _.where(_!='', 'nan').astype(np.float32)
+        x3['days_since_onset'] = _
+        x3 = x3.to_dataframe().reset_index()
+        
+        x4 = x3.merge(x2, on='DonorID')
+        x4 = x4.set_index('sample').to_xarray()
+        x4 = x4.rename(DonorID='donor')
+        return x4
 
     @property
-    def X2(self):
+    def X(self):
         x1 = analysis1.X2.copy()
         x2 = analysis2.X2.copy()
 
         x1['sample'] = x1.sample + '_innate'
         x2['sample'] = x2.sample + '_adaptive'
         x = xa.concat([x1, x2], dim='sample')
+
+        x['tot'] = x.X.sum(dim=['cell_type', 'gene'])
+        x['X'] = 1e6*x.X/x.tot
         return x
 
     def data2(self, gene):
@@ -91,7 +120,7 @@ class _analysis3:
 
     @property
     def app1_genes1(self):
-        return self.X2.X.gene.data
+        return self.X.gene.data
 
     def app1_plot1_data(self, gene):
         x1 = self.cytokines
@@ -108,22 +137,66 @@ class _analysis3:
         return x3
 
     def app1_plot2_data(self, gene):
-        x1 = self.data2(gene)
-        x2 = x1[[
-            'donor', 'days_since_onset', 'status', 
-            'dsm_severity_score_group',
-            'gene', 'subset',         
-            'X'
-        ]]
-        x2 = x2[x2.dsm_severity_score_group!='']
-        x2 = x2.groupby(list(set(x2.columns)-set(['X'])), observed=True)
-        x2 = x2.X.sum().reset_index()
-        return x2
+        x1 = xa.merge([self.X.sel(gene=gene), self.obs])
+        x1 = x1.sel(sample=x1.dsm_severity_score_group!='')
+        x1 = x1.sum(dim='cell_type')
+        x1 = x1.to_dataframe().reset_index()
+        x3 = pd.Categorical(
+            x1.status,
+            categories=[
+                'Control', 'Moderate-alive', 'Severe-alive', 
+                'Critical-alive', 'Critical-deceased'
+            ]
+        )
+        x1['status'] = x3
+        return x1
+
 
     def app1_plot3_data(self, gene):
-        x1 = self.data2(gene)
-        x1 = x1[x1.dsm_severity_score_group!='']
+        x1 = xa.merge([self.X.sel(gene=gene), self.obs])
+        x1 = x1.sel(sample=x1.dsm_severity_score_group!='')
+        x1 = x1.to_dataframe().reset_index()
+        x3 = pd.Categorical(
+            x1.status,
+            categories=[
+                'Control', 'Moderate-alive', 'Severe-alive', 
+                'Critical-alive', 'Critical-deceased'
+            ]
+        )
+        x1['status'] = x3        
         return x1
+
+    @compose(property, lazy, XArrayCache())
+    def fit1(self):
+        x1 = xa.merge([self.X, self.obs])
+        x1 = x1[['X', 'days_since_onset', 'dsm_severity_score_group', 'subset']]
+        x1 = x1.sum(dim='cell_type')
+        x1['X'] = np.log1p(x1.X)/np.log(2)
+
+        def f1(x):
+            x3 = smf.ols('X~days_since_onset', data=x).fit()
+            x4 = smf.ols('X~days_since_onset * dsm_severity_score_group', data=x).fit()
+            x5 = anova_lm(x3, x4).loc[[1],:].reset_index()
+            x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
+            return x5
+
+        def f2(x):    
+            x6 = x1.sel(gene=x).to_dataframe().reset_index()
+            x6 = x6[x6.dsm_severity_score_group!='']
+            x6 = x6.groupby(['subset', 'gene']).apply(f1).reset_index()
+            return x6
+
+        x7 = np.array_split(x1.gene.data, 28)
+        with LocalCluster(n_workers=28) as cluster:
+            with Client(cluster) as client:
+                x8 = compute(delayed(f2)(g) for g in x7)
+        x8 = pd.concat(x8[0])
+
+        x9 = ~x8['Pr(>F)'].isna()
+        x8.loc[x9, 'q'] = x8[x9].groupby('subset')['Pr(>F)'].\
+            transform(lambda x: multipletests(x, method='fdr_bh')[1])
+        x8 = x8.set_index(['subset', 'gene']).to_xarray()
+        return x8
 
 analysis3 = _analysis3()
 
@@ -137,7 +210,7 @@ if __name__ == '__main__':
     print(        
         ggplot(x3)+aes('days_since_onset', 'np.log1p(level)/np.log(10)')+
             geom_point(aes(fill='DSM_group'), alpha=0.5)+
-            geom_line(aes(group='DonorID'), alpha=0.1)+
+            geom_line(aes(group='donor'), alpha=0.1)+
             geom_smooth(aes(color='DSM_group'), alpha=0.5)+
             facet_grid('cytokine~.', scales='free')+
             theme(figure_size=(6, 4))+
@@ -177,5 +250,3 @@ if __name__ == '__main__':
             geom_point(aes(color='dsm_severity_score_group'))+
             theme(axis_text_x=element_text(angle=45, ha='right'))
     )
-
-#%%
