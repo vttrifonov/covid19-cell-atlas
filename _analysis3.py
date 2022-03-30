@@ -189,7 +189,6 @@ class _analysis3:
         x8 = x8.set_index(['subset', 'gene']).to_xarray()
         return x8
 
-
     @compose(property, lazy, XArrayCache())
     def fit2(self):
         x1 = self.cytokines
@@ -211,6 +210,10 @@ class _analysis3:
         x8.loc[x9, 'q'] = multipletests(x8[x9]['Pr(>F)'], method='fdr_bh')[1]
         x8 = x8.set_index(['cytokine']).to_xarray()
         return x8
+
+    @compose(property, lazy, XArrayCache())
+    def enrich1(self):
+        x = self.fit1[['F']]
 
 analysis3 = _analysis3()
 
