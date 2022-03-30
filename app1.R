@@ -2,6 +2,8 @@ library(data.table)
 library(magrittr)
 library(shiny)
 library(ggplot2)
+library(DT)
+library(reticulate)
 source('helpers.R')
 
 ui <- {
@@ -20,12 +22,7 @@ ui <- {
         )
     ),
     fluidRow(
-        selectizeInput(
-            'genes1',
-            'Select gene',
-            choices=NULL,
-            multiple=FALSE
-        )
+        DTOutput('genes1')
     ),
     fluidRow(
         column(8,
@@ -46,23 +43,34 @@ server <- function(input, output, session) {
             input <- list(genes=c('IL-6'), genes1=c('IL6'))
         }
 
-        analysis <- reticulate::import('covid19_cell_atlas._analysis3')$analysis3
+        analysis <- import('covid19_cell_atlas._analysis3')$analysis3
+
+        genes1 <- py_eval('r.analysis.fit1.to_dataframe().reset_index()') %>%
+                py_to_r() %>%
+                data.table
+        genes1 <- genes1[!is.na(`Pr(>F)`)]
 
         plot1 <- reactive({
             genes <- req(input$genes)
             data <- analysis$app1_plot1_data(genes) %>% data.table
+            f1<-lm(log2(level)~DSM_group, data=data)
+            model.matrix(log2(level)~poly(days_since_onset,1)*DSM_group, data=data)
+            anova(f1, f2)
+
 
             ggplot(data)+
                 aes(x=days_since_onset, y=log2(level))+
                 geom_line(aes(group=donor), alpha=0.1)+
                 geom_point(aes(fill=DSM_group), alpha=0.5, size=2, pch=21)+
-                geom_smooth(aes(color=DSM_group), alpha=0.5)+
+                geom_smooth(aes(color=DSM_group), alpha=0.5, formula='y~poly(x, 1)', method='lm')+
                 facet_grid(cytokine~., scales='free')+
                 labs(y='log2(pg/mL)')
         })
 
+
         plot2 <- reactive({
-            genes <- req(input$genes1)
+            rows <- req(input$genes1_rows_selected)
+            genes <- genes1$gene[rows]
             data <- analysis$app1_plot2_data(genes) %>% data.table
 
             ggplot(data)+
@@ -75,7 +83,8 @@ server <- function(input, output, session) {
         })
 
         plot3 <- reactive({
-            genes <- req(input$genes1)
+            row <- req(input$genes1_rows_selected)
+            genes <- genes1$gene[row]
             data <- analysis$app1_plot3_data(genes) %>% data.table
 
             ggplot(data)+
@@ -102,10 +111,12 @@ server <- function(input, output, session) {
 
         output$plot1 <- renderPlot(plot1())
 
-        updateSelectizeInput(
-            session, 'genes1',
-            choices = analysis$app1_genes1,
-            server = TRUE
+        output$genes1 <- renderDT(
+            genes1 %>%
+                datatable_scroller(
+                    filter = 'top', selection = 'single',
+                    options = list(dom = 't')
+                )
         )
 
         output$plot2 <- renderPlot(plot2())
