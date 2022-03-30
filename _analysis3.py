@@ -176,21 +176,24 @@ class _analysis3:
         def f1(x):
             x3 = smf.ols('X~days_since_onset', data=x).fit()
             x4 = smf.ols('X~days_since_onset * dsm_severity_score_group', data=x).fit()
-            x5 = anova_lm(x3, x4).loc[[1],:].reset_index()
+            x5 = anova_lm(x3, x4).loc[[1],:].reset_index(drop=True)
             x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
             return x5
-
-        def f2(x):    
+        
+        def f2(x):
             x6 = x1.sel(gene=x).to_dataframe().reset_index()
             x6 = x6[x6.dsm_severity_score_group!='']
-            x6 = x6.groupby(['subset', 'gene']).apply(f1).reset_index()
+            x6 = x6.groupby(['subset', 'gene'])
+            x6 = x6.apply(f1)
             return x6
 
         x7 = np.array_split(x1.gene.data, 28)
         with LocalCluster(n_workers=28) as cluster:
             with Client(cluster) as client:
                 x8 = compute(delayed(f2)(g) for g in x7)
-        x8 = pd.concat(x8[0])
+                x8 = pd.concat(x8[0])
+                x8 = x8.reset_index()
+                x8 = x8.drop(columns='level_2')
 
         x9 = ~x8['Pr(>F)'].isna()
         x8.loc[x9, 'q'] = x8[x9].groupby('subset')['Pr(>F)'].\
