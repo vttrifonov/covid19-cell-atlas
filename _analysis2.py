@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import nih_adaptive
 from .common.caching import lazy, XArrayCache, compose, CSVCache
-from .helpers import config
+from ._helpers import config
 from .covid19_time_resolved_paper import data as paper
 
 #%%

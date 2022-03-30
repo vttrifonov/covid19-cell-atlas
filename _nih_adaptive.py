@@ -7,7 +7,7 @@ import scanpy
 import xarray as xa
 import numpy as np
 import sparse
-from .helpers import config
+from ._helpers import config
 from .common.caching import lazy, compose, XArrayCache, SparseCache
 
 #%%

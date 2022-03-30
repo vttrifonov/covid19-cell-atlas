@@ -18,7 +18,7 @@ from dask.distributed import LocalCluster, Client
 
 
 from .common.caching import lazy, XArrayCache, compose, CSVCache
-from .helpers import config
+from ._helpers import config
 from .covid19_time_resolved_paper import data as paper
 from ._analysis1 import analysis1
 from ._analysis2 import analysis2
