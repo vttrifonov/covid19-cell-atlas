@@ -69,7 +69,7 @@ server <- function(input, output, session) {
                 aes(days_since_onset, y=log2(X+1))+
                 geom_point(aes(fill=dsm_severity_score_group), alpha=0.5, size=2, pch=21)+
                 geom_line(aes(group=donor), alpha=0.1)+
-                geom_smooth(aes(color=dsm_severity_score_group), alpha=0.5)+
+                geom_smooth(method='lm', aes(color=dsm_severity_score_group), alpha=0.5)+
                 facet_grid(subset+gene~., scales='free')+
                 labs(y='log2RPM')
         })
@@ -82,7 +82,7 @@ server <- function(input, output, session) {
                 aes(days_since_onset, y=log(X+1))+
                 geom_point(aes(fill=dsm_severity_score_group), alpha=0.5)+
                 geom_line(aes(group=donor), alpha=0.1)+
-                geom_smooth(aes(color=dsm_severity_score_group), alpha=0.5)+
+                geom_smooth(method='lm', aes(color=dsm_severity_score_group), alpha=0.5)+
                 facet_grid(subset+cell_type+gene~., scales='free_x')+
                 labs(y='log2RPM')
         })
