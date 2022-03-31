@@ -9,15 +9,8 @@ import pandas as pd
 import numpy as np
 import xarray as xa
 from pathlib import Path
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
-from statsmodels.stats.anova import anova_lm
-from statsmodels.stats.multitest import multipletests
-from dask import delayed, compute
-from dask.distributed import LocalCluster, Client
 
-
-from .common.caching import lazy, XArrayCache, compose, CSVCache
+from .common.caching import compose, lazy, XArrayCache
 from ._helpers import config
 from .covid19_time_resolved_paper import data as paper
 from ._analysis1 import analysis1
@@ -156,6 +149,12 @@ class _analysis3:
 
     @compose(property, lazy, XArrayCache())
     def fit1(self):
+        from dask import delayed, compute
+        from dask.distributed import LocalCluster, Client
+        import statsmodels.formula.api as smf
+        from statsmodels.stats.anova import anova_lm
+        from .sigs.fit import multipletests
+
         x1 = self.pseudobulk
         x1 = x1[['X', 'days_since_onset', 'dsm_severity_score_group', 'subset']]
         x1 = x1.sum(dim='cell_type')
@@ -183,14 +182,16 @@ class _analysis3:
                 x8 = x8.reset_index()
                 x8 = x8.drop(columns='level_2')
 
-        x9 = ~x8['Pr(>F)'].isna()
-        x8.loc[x9, 'q'] = x8[x9].groupby('subset')['Pr(>F)'].\
-            transform(lambda x: multipletests(x, method='fdr_bh')[1])
+        x8['q'] = x8.groupby('subset')['Pr(>F)'].transform(multipletests, method='fdr_bh')
         x8 = x8.set_index(['subset', 'gene']).to_xarray()
         return x8
 
     @compose(property, lazy, XArrayCache())
     def fit2(self):
+        import statsmodels.formula.api as smf
+        from statsmodels.stats.anova import anova_lm
+        from .sigs.fit import multipletests
+
         x1 = self.cytokines
         x1 = x1[['level', 'days_since_onset', 'dsm_severity_score_group']]
         x1['level'] = np.log1p(x1.level)/np.log(2)
@@ -206,13 +207,18 @@ class _analysis3:
         
         x8 = x1.groupby(['cytokine']).apply(f1)
         x8 = x8.reset_index().drop(columns='level_1')
-        x9 = ~x8['Pr(>F)'].isna()
-        x8.loc[x9, 'q'] = multipletests(x8[x9]['Pr(>F)'], method='fdr_bh')[1]
+        x8['q'] = multipletests(x8['Pr(>F)'], method='fdr_bh')
         x8 = x8.set_index(['cytokine']).to_xarray()
         return x8
 
+    @property
+    def sigs(self):
+        from .sigs._sigs import sigs
+        return sigs.all1
+
     @compose(property, lazy, XArrayCache())
     def enrich1(self):
+        from .sigs.fit import enrichment
         x = self.fit1[['F']]
 
 analysis3 = _analysis3()
