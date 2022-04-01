@@ -7,11 +7,12 @@ import numpy as np
 
 from ._analysis3 import analysis3
 from ._helpers import round_float
+from .common.caching import compose, lazy
 
 class _app1:
     analysis = analysis3
 
-    @property
+    @compose(property, lazy)
     def genes(self):
         return self.analysis.pseudobulk.gene.data
 
@@ -44,7 +45,7 @@ class _app1:
         x1['status'] = x3        
         return x1
 
-    @property
+    @compose(property, lazy)
     def genes_table(self):
         x = self.analysis.fit1.to_dataframe().reset_index()
         x = x[~x['Pr(>F)'].isna()]
@@ -57,12 +58,29 @@ class _app1:
             'dsm_severity_score_group[T.DSM_low]',
             'days_since_onset:dsm_severity_score_group[T.DSM_low]'
         ]]
-        x['Pr(>F)'] = round_float(x['Pr(>F)'], 1)
-        x['q'] = round_float(x.q, 1)
+
+        for c in ['Pr(>F)', 'q']:            
+            x[c] = round_float(x[c], 1)
+
         for c in x:
             if c in ['q', 'Pr(>F)', 'subset', 'gene']:
                 continue
             x[c] = round(x[c], 2)
+        return x
+
+    @compose(property, lazy)
+    def enrich1_table(self):
+        x = self.analysis.enrich1
+        x = x.to_dataframe().reset_index()
+        x = x[x.coef>0]
+        x = x.sort_values('p')
+
+        for c in ['p']:
+            x[c] = round_float(x[c], 1)
+
+        for c in ['coef', 'r2', 'se']:
+            x[c] = round(x[c], 2)
+
         return x
 
 app1 = _app1()
