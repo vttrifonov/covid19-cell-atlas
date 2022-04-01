@@ -4,7 +4,6 @@ if __name__=='__main__':
     __package__ = 'covid19_cell_atlas'
 
 from pathlib import Path
-from re import S
 import pandas as pd
 import numpy as np
 import xarray as xa
@@ -18,7 +17,6 @@ from ._analysis1 import analysis1
 from ._analysis2 import analysis2
 
 #%%
-
 class _analysis3:
     storage = Path(config.cache)/'analysis3'
 
@@ -104,50 +102,7 @@ class _analysis3:
         r = xa.merge([x, x4], join='inner')
 
         return r
-
-    @property
-    def app1_cytokines(self):
-        return self.cytokines.cytokine.data
-
-    @property
-    def app1_genes(self):
-        return self.pseudobulk.gene.data
-
-    def app1_plot1_data(self, cytokine):
-        x1 = self.cytokines.sel(cytokine=cytokine)
-        x1 = x1.sel(sample=x1.dsm_severity_score_group!='')
-        x1 = x1.to_dataframe().reset_index()
-        return x1
-
-    def app1_plot2_data(self, gene):
-        x1 = self.pseudobulk.sel(gene=gene)
-        x1 = x1.sel(sample=x1.dsm_severity_score_group!='')
-        x1 = x1.sum(dim='cell_type')
-        x1 = x1.to_dataframe().reset_index()
-        x3 = pd.Categorical(
-            x1.status,
-            categories=[
-                'Control', 'Moderate-alive', 'Severe-alive', 
-                'Critical-alive', 'Critical-deceased'
-            ]
-        )
-        x1['status'] = x3
-        return x1
-
-    def app1_plot3_data(self, gene):
-        x1 = self.pseudobulk.sel(gene=gene)
-        x1 = x1.sel(sample=x1.dsm_severity_score_group!='')
-        x1 = x1.to_dataframe().reset_index()
-        x3 = pd.Categorical(
-            x1.status,
-            categories=[
-                'Control', 'Moderate-alive', 'Severe-alive', 
-                'Critical-alive', 'Critical-deceased'
-            ]
-        )
-        x1['status'] = x3        
-        return x1
-
+    
     @compose(property, lazy, XArrayCache())
     def fit1(self):
         from dask import delayed, compute
@@ -212,30 +167,27 @@ class _analysis3:
         x8 = x8.set_index(['cytokine']).to_xarray()
         return x8
 
+    @compose(property, XArrayCache())
+    def symbol_entrez(self):
+        from .sigs.entrez import symbol_entrez
+
+        x = self.pseudobulk.gene.data
+        x = symbol_entrez(x)
+        return x
+
+    @property
+    def sigs(self):
+        from .sigs._sigs import sigs
+        x = sigs.all1
+        x = x.sel(sig=x.sig_prefix.isin([
+            'REACTOME', 'KEGG1', 
+            'BIOCARTA', 'HALLMARK'
+        ]))
+        return x
+
 analysis3 = _analysis3()
 
 #%%
-
-@compose(property, XArrayCache())
-def symbol_entrez(self):
-    from .sigs.entrez import symbol_entrez
-
-    x = self.pseudobulk.gene.data
-    x = symbol_entrez(x)
-    return x
-_analysis3.symbol_entrez = symbol_entrez
-
-@property
-def sigs(self):
-    from .sigs._sigs import sigs
-    x = sigs.all1
-    x = x.sel(sig=x.sig_prefix.isin([
-        'REACTOME', 'KEGG1', 
-        'BIOCARTA', 'HALLMARK'
-    ]))
-    return x
-_analysis3.sigs = sigs
-
 @compose(property, lazy)
 def sigs1(self):
     g = self.symbol_entrez
@@ -267,54 +219,6 @@ _analysis3.enrich1 = enrich1
 
 #%%
 if __name__ == '__main__':
-    from plotnine import *
     self = analysis3
-
-#%%
-    x3 = self.app1_plot1_data(['IL-6'])
-    x3 = x3[x3.days_since_onset<=40]
-    print(        
-        ggplot(x3)+aes('days_since_onset', 'np.log1p(level)/np.log(2)')+
-            geom_point(aes(fill='dsm_severity_score_group'), alpha=0.5)+
-            geom_line(aes(group='donor'), alpha=0.1)+
-            geom_smooth(aes(color='dsm_severity_score_group'), alpha=0.5, method='lm')+
-            facet_grid('cytokine~.', scales='free')+
-            theme(figure_size=(6, 4))+
-            labs(y='log2(pg/mL)')
-    )
-
-#%%
-    x2 = self.app1_plot2_data('IL6')
-    print(        
-        ggplot(x2)+aes('days_since_onset', 'np.log1p(X)/np.log(2)')+
-            geom_point(aes(fill='dsm_severity_score_group'), alpha=0.5)+
-            geom_line(aes(group='donor'), alpha=0.1)+
-            geom_smooth(aes(color='dsm_severity_score_group'), alpha=0.5)+
-            facet_grid('subset+gene~.', scales='free')+
-            theme(figure_size=(6, 4))+
-            labs(y='log2RPM')
-    )
-
-#%%
-    x2 = self.app1_plot3_data('IL6')
-    print(        
-        ggplot(x2)+aes('days_since_onset', 'np.log1p(X)/np.log(2)')+
-            geom_point(aes(fill='dsm_severity_score_group'), alpha=0.5)+
-            geom_line(aes(group='donor'), alpha=0.1)+
-            geom_smooth(aes(color='dsm_severity_score_group'), alpha=0.5)+
-            facet_grid('subset+cell_type+gene~.', scales='free_x')+
-            theme(figure_size=(4, 30))+
-            labs(y='log2RPM')
-    )
-
-#%%
-    x2 = self.app1_plot2_data('IL6')
-    print(
-        ggplot(x2)+aes('status', 'dsm_severity_score')+
-            geom_violin(aes(fill='status'))+
-            geom_boxplot(width=0.05)+
-            geom_point(aes(color='dsm_severity_score_group'))+
-            theme(axis_text_x=element_text(angle=45, ha='right'))
-    )
 
 # %%
