@@ -23,7 +23,8 @@
 
     app1 %>%
         lazy_prop(enrich_table_selected, reactive({
-            row <- this$input$enrich_rows_selected
+            this$input$refresh_enrich_table_selected
+            row <- isolate(this$input$enrich_rows_selected)
             if (is.null(row)) {
                 NULL
              } else {
@@ -111,7 +112,9 @@
         fluidPage(
             h4('Select a gene set'),
             DTOutput('enrich'),
-            uiOutput('select_gene_header'),
+            h4('Select a gene'),
+            uiOutput('ui_refresh_enrich_table_selected'),
+            textOutput('select_gene_header'),
             uiOutput('leading_edge_only'),
             DTOutput('genes'),
             fluidRow(
@@ -130,13 +133,20 @@
     app1 %>%
         lazy_prop(server, function(input, output, session) {
             this$input <- input
-            output$select_gene_header <- renderUI({
+            output$ui_refresh_enrich_table_selected <- renderUI({
+                row <- input$enrich_rows_selected
+                table <- this$enrich_table()
+                t <- 'Click to show all genes'
+                if (!is.null(row))
+                    t <-  glue('Click to show genes for {table$sig[row]}')
+                actionButton('refresh_enrich_table_selected', t)
+            })
+            output$select_gene_header <- renderText({
                 enrich_table <- this$enrich_table_selected()
-                t <- ''
+                t <- 'Showing all genes'
                 if (!is.null(enrich_table))
-                    t <- glue(' from {enrich_table$sig}')
-                t <- glue('Select a gene{t}')
-                h4(t)
+                    t <- glue('Showing genes for {enrich_table$sig}')
+                t
             })
             output$leading_edge_only <- renderUI({
                 enrich_table <- this$enrich_table_selected()
