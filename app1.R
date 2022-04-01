@@ -23,8 +23,7 @@
 
     app1 %>%
         lazy_prop(enrich_table_selected, reactive({
-            this$input$refresh_enrich_table_selected
-            row <- isolate(this$input$enrich_rows_selected)
+            row <- this$input$enrich_rows_selected
             if (is.null(row)) {
                 NULL
              } else {
@@ -44,7 +43,8 @@
 
     app1 %>%
         lazy_prop(genes_table, reactive({
-            enrich_table <- this$enrich_table_selected()
+            this$input$refresh_genes_table
+            enrich_table <- isolate(this$enrich_table_selected())
             genes <- py_app$genes_table %>% data.table
             if (!is.null(enrich_table)) {
                 leading_edge_only <- this$input$leading_edge_only
@@ -80,8 +80,8 @@
 
     app1 %>%
         lazy_prop(plot2, reactive({
-            .genes_table <- this$genes_table_selected()
-            gene <- .genes_table$gene
+            genes_table <- this$genes_table_selected()
+            gene <- genes_table$gene
             data <- py_app$plot2_data(gene) %>% data.table
 
             ggplot(data)+
@@ -95,8 +95,8 @@
 
     app1 %>%
         lazy_prop(plot3, reactive({
-            .genes_table <- this$genes_table_selected()
-            gene <- .genes_table$gene
+            genes_table <- this$genes_table_selected()
+            gene <- genes_table$gene
             data <- py_app$plot3_data(gene) %>% data.table
 
             ggplot(data)+
@@ -113,7 +113,7 @@
             h4('Select a gene set'),
             DTOutput('enrich'),
             h4('Select a gene'),
-            uiOutput('ui_refresh_enrich_table_selected'),
+            actionButton('refresh_genes_table', 'Click to show all genes'),
             textOutput('select_gene_header'),
             uiOutput('leading_edge_only'),
             DTOutput('genes'),
@@ -133,26 +133,32 @@
     app1 %>%
         lazy_prop(server, function(input, output, session) {
             this$input <- input
-            output$ui_refresh_enrich_table_selected <- renderUI({
+
+            observe({
                 row <- input$enrich_rows_selected
                 table <- this$enrich_table()
                 t <- 'Click to show all genes'
                 if (!is.null(row))
                     t <-  glue('Click to show genes for {table$sig[row]}')
-                actionButton('refresh_enrich_table_selected', t)
+                updateActionButton(session, 'refresh_genes_table', t)
             })
+
             output$select_gene_header <- renderText({
-                enrich_table <- this$enrich_table_selected()
+                input$refresh_genes_table
+                enrich_table <- isolate(this$enrich_table_selected())
                 t <- 'Showing all genes'
                 if (!is.null(enrich_table))
                     t <- glue('Showing genes for {enrich_table$sig}')
                 t
             })
+
             output$leading_edge_only <- renderUI({
-                enrich_table <- this$enrich_table_selected()
+                input$refresh_genes_table
+                enrich_table <- isolate(this$enrich_table_selected())
                 if (!is.null(enrich_table))
                     checkboxInput('leading_edge_only', 'Leading edge only', value=TRUE)
             })
+
             output$enrich <- renderDT(this$enrich())
             output$genes <- renderDT(this$genes())
             output$plot2 <- renderPlot(this$plot2())
