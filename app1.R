@@ -5,6 +5,7 @@
     library(ggplot2)
     library(DT)
     library(reticulate)
+    library(glue)
     source('helpers.R')
     source('common/module.R')
     load.module('common')
@@ -22,9 +23,13 @@
 
     app1 %>%
         lazy_prop(enrich_table_selected, reactive({
-            table <- this$enrich_table()
-            rows <- req(this$input$enrich_rows_selected)
-            table[rows, ]
+            row <- this$input$enrich_rows_selected
+            if (is.null(row)) {
+                NULL
+             } else {
+                table <- this$enrich_table()
+                table[row, ]
+            }
         }))
 
     app1 %>%
@@ -38,13 +43,21 @@
 
     app1 %>%
         lazy_prop(genes_table, reactive({
-            .enrich_table <- this$enrich_table_selected()
-            sigs <- py_app$enrich2_leading_edge %>% data.table
-            sigs <- sigs[sig==.enrich_table$sig]
-            sigs <- sigs[subset==.enrich_table$subset]
+            enrich_table <- this$enrich_table_selected()
             genes <- py_app$genes_table %>% data.table
-            genes <- genes[subset==.enrich_table$subset]
-            genes <- genes[gene %in% sigs$gene]
+            if (!is.null(enrich_table)) {
+                leading_edge_only <- this$input$leading_edge_only
+                req(!is.null(leading_edge_only))
+                if (leading_edge_only) {
+                    sigs <- py_app$enrich2_leading_edge %>% data.table
+                    sigs <- sigs[subset==enrich_table$subset]
+                } else {
+                    sigs <- py_app$sigs %>% data.table
+                }
+                sigs <- sigs[sig==enrich_table$sig]
+                genes <- genes[subset==enrich_table$subset]
+                genes <- genes[gene %in% sigs$gene]
+            }
             genes
         }))
 
@@ -95,31 +108,41 @@
         }))
 
     app1$ui <- {
-    fluidPage(
-        fluidRow(
-            column(6,
-                DTOutput('enrich')
+        fluidPage(
+            h4('Select a gene set'),
+            DTOutput('enrich'),
+            uiOutput('select_gene_header'),
+            uiOutput('leading_edge_only'),
+            DTOutput('genes'),
+            fluidRow(
+                column(8,
+                    plotOutput('plot2', height=200*2)
+                )
             ),
-            column(6,
-                DTOutput('genes')
-            )
-        ),
-        fluidRow(
-            column(8,
-                plotOutput('plot2', height=200*2)
-            )
-        ),
-        fluidRow(
-            column(8,
-                plotOutput('plot3', height=200*24)
+            fluidRow(
+                column(8,
+                    plotOutput('plot3', height=200*24)
+                )
             )
         )
-    )
     }
 
     app1 %>%
         lazy_prop(server, function(input, output, session) {
             this$input <- input
+            output$select_gene_header <- renderUI({
+                enrich_table <- this$enrich_table_selected()
+                t <- ''
+                if (!is.null(enrich_table))
+                    t <- glue(' from {enrich_table$sig}')
+                t <- glue('Select a gene{t}')
+                h4(t)
+            })
+            output$leading_edge_only <- renderUI({
+                enrich_table <- this$enrich_table_selected()
+                if (!is.null(enrich_table))
+                    checkboxInput('leading_edge_only', 'Leading edge only', value=TRUE)
+            })
             output$enrich <- renderDT(this$enrich())
             output$genes <- renderDT(this$genes())
             output$plot2 <- renderPlot(this$plot2())
