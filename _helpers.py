@@ -32,3 +32,8 @@ def xa_mmult(x, y, dim_x, dim_y):
         output_core_dims=[[dim_x[0], dim_y[1]]],
         join='inner'
     )
+
+def round_float(x, n=1):
+    e = np.floor(np.log10(x))
+    m = np.ceil(x*10**(n-e))/10**n
+    return m*10**e
