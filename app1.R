@@ -18,7 +18,21 @@
 
     app1 %>%
         lazy_prop(enrich_table, reactive({
-            py_app$enrich2_table %>% data.table
+            this$input$refresh_enrich_table
+            enrich <- py_app$enrich2_table %>% data.table
+            genes_table <- isolate(this$genes_table_selected())
+            if (!is.null(genes_table)) {
+                leading_edge_only <- this$input$enrich_leading_edge_only
+                req(!is.null(leading_edge_only))
+                if (leading_edge_only) {
+                    sigs <- py_app$enrich2_leading_edge %>% data.table
+                } else {
+                    sigs <- py_app$sigs %>% data.table
+                }
+                sigs <- sigs[gene==genes_table$gene]
+                enrich <- enrich[sig %in% sigs$sig]
+            }
+            enrich
         }))
 
     app1 %>%
@@ -47,16 +61,14 @@
             enrich_table <- isolate(this$enrich_table_selected())
             genes <- py_app$genes_table %>% data.table
             if (!is.null(enrich_table)) {
-                leading_edge_only <- this$input$leading_edge_only
+                leading_edge_only <- this$input$genes_leading_edge_only
                 req(!is.null(leading_edge_only))
                 if (leading_edge_only) {
                     sigs <- py_app$enrich2_leading_edge %>% data.table
-                    sigs <- sigs[subset==enrich_table$subset]
                 } else {
                     sigs <- py_app$sigs %>% data.table
                 }
                 sigs <- sigs[sig==enrich_table$sig]
-                genes <- genes[subset==enrich_table$subset]
                 genes <- genes[gene %in% sigs$gene]
             }
             genes
@@ -64,9 +76,13 @@
 
     app1 %>%
         lazy_prop(genes_table_selected, reactive({
-            table <- this$genes_table()
-            rows <- req(this$input$genes_rows_selected)
-            table[rows, ]
+            row <- this$input$genes_rows_selected
+            if (is.null(row)) {
+                NULL
+            } else {
+                table <- this$genes_table()
+                table[row, ]
+            }
         }))
 
     app1 %>%
@@ -80,7 +96,7 @@
 
     app1 %>%
         lazy_prop(plot2, reactive({
-            genes_table <- this$genes_table_selected()
+            genes_table <- req(this$genes_table_selected())
             gene <- genes_table$gene
             data <- py_app$plot2_data(gene) %>% data.table
 
@@ -95,7 +111,7 @@
 
     app1 %>%
         lazy_prop(plot3, reactive({
-            genes_table <- this$genes_table_selected()
+            genes_table <- req(this$genes_table_selected())
             gene <- genes_table$gene
             data <- py_app$plot3_data(gene) %>% data.table
 
@@ -111,11 +127,14 @@
     app1$ui <- {
         fluidPage(
             h4('Select a gene set'),
+            actionButton('refresh_enrich_table', 'Click to show gene sets'),
+            textOutput('select_enrich_header'),
+            uiOutput('enrich_leading_edge_only'),
             DTOutput('enrich'),
             h4('Select a gene'),
             actionButton('refresh_genes_table', 'Click to show all genes'),
             textOutput('select_gene_header'),
-            uiOutput('leading_edge_only'),
+            uiOutput('genes_leading_edge_only'),
             DTOutput('genes'),
             fluidRow(
                 column(8,
@@ -135,12 +154,37 @@
             this$input <- input
 
             observe({
+                row <- input$genes_rows_selected
+                table <- this$genes_table()
+                t <- 'Click to show all gene sets'
+                if (!is.null(row))
+                    t <-  glue('Click to show gene sets for {table$gene[row]}')
+                updateActionButton(session, 'refresh_enrich_table', t)
+            })
+
+            observe({
                 row <- input$enrich_rows_selected
                 table <- this$enrich_table()
                 t <- 'Click to show all genes'
                 if (!is.null(row))
                     t <-  glue('Click to show genes for {table$sig[row]}')
                 updateActionButton(session, 'refresh_genes_table', t)
+            })
+
+            output$select_enrich_header <- renderText({
+                input$refresh_enrich_table
+                genes_table <- isolate(this$genes_table_selected())
+                t <- 'Showing all gene sets'
+                if (!is.null(genes_table))
+                    t <- glue('Showing gene sets for {genes_table$gene}')
+                t
+            })
+
+            output$enrich_leading_edge_only <- renderUI({
+                input$refresh_enrich_table
+                genes_table <- isolate(this$genes_table_selected())
+                if (!is.null(genes_table))
+                    checkboxInput('enrich_leading_edge_only', 'Leading edge only', value=TRUE)
             })
 
             output$select_gene_header <- renderText({
@@ -152,11 +196,11 @@
                 t
             })
 
-            output$leading_edge_only <- renderUI({
+            output$genes_leading_edge_only <- renderUI({
                 input$refresh_genes_table
                 enrich_table <- isolate(this$enrich_table_selected())
                 if (!is.null(enrich_table))
-                    checkboxInput('leading_edge_only', 'Leading edge only', value=TRUE)
+                    checkboxInput('genes_leading_edge_only', 'Leading edge only', value=TRUE)
             })
 
             output$enrich <- renderDT(this$enrich())
