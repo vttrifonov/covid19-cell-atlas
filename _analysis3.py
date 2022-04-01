@@ -217,6 +217,14 @@ def enrich1(self):
     return x
 _analysis3.enrich1 = enrich1
 
+@compose(property, lazy, XArrayCache())
+def enrich2(self):
+    from .sigs.fit import fit_gsea
+    x = self.sigs1
+    x = fit_gsea(x.t, x.s, 1e5)
+    return x
+_analysis3.enrich2 = enrich2
+
 #%%
 if __name__ == '__main__':
     self = analysis3
