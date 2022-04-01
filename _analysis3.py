@@ -4,6 +4,7 @@ if __name__=='__main__':
     __package__ = 'covid19_cell_atlas'
 
 from pathlib import Path
+from re import S
 import pandas as pd
 import numpy as np
 import xarray as xa
@@ -259,9 +260,9 @@ _analysis3.sigs1 = sigs1
 @compose(property, lazy, XArrayCache())
 def enrich1(self):
     from .sigs.fit import enrichment
-    t = self.sigs1
-    e = enrichment(t.t, t.s)
-    return e
+    x = self.sigs1
+    x = enrichment(x.t, x.s)
+    return x
 _analysis3.enrich1 = enrich1
 
 #%%
