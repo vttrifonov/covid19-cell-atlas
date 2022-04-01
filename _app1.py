@@ -83,6 +83,44 @@ class _app1:
 
         return x
 
+    @compose(property, lazy)
+    def enrich2_table(self):
+        x = self.analysis.enrich2
+        x = x.drop_dims('gene')
+        x = x.to_dataframe().reset_index()
+        x = x[x.ES>0]
+        x = x[~x.pval.isna()]
+        x = x.sort_values('pval')
+
+        for c in ['pval', 'padj']:
+            x[c] = round_float(x[c], 1)
+
+        for c in ['ES', 'NES']:
+            x[c] = round(x[c], 2)
+
+        return x
+
+    @compose(property, lazy)
+    def enrich2_leading_edge(self):
+        g = self.analysis.symbol_entrez
+        g = g.rename(
+            Entrez_Gene_ID='entrez',
+            symbol='gene'
+        )
+        g = g.to_series_sparse()
+        g = g.reset_index()
+
+        x = self.analysis.enrich2
+        x = x.leadingEdge
+        x = x.rename(gene='entrez')
+        x = x.to_series_sparse()
+        x = x.reset_index()
+
+        r = x.merge(g, on='entrez')
+        r = r[['subset', 'gene', 'sig']].drop_duplicates()
+
+        return r
+
     @property
     def sigs(self):
         g = self.analysis.symbol_entrez
