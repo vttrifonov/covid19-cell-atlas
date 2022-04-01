@@ -1,6 +1,7 @@
 #%%
 from pathlib import Path
 import xarray as xa
+import numpy as np
 
 #%%
 class _config:
@@ -23,3 +24,11 @@ def xa_dense(x):
 
 xa.DataArray.todense = xa_dense
 xa.Dataset.todense = xa_dense
+
+def xa_mmult(x, y, dim_x, dim_y):
+    return xa.apply_ufunc(
+        np.matmul, x, y,
+        input_core_dims=[dim_x, dim_y],
+        output_core_dims=[[dim_x[0], dim_y[1]]],
+        join='inner'
+    )
