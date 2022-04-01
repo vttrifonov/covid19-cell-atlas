@@ -38,57 +38,13 @@ server <- function(input, output, session) {
             input <- list(cytokines=c('IL-6'), genes=c('IL6'))
         }
 
-        py_run_string('from covid19_cell_atlas._analysis3 import analysis3 as analysis')
-        analysis <- py_eval('analysis')
-
-        round_mantisa <- function(x, n=1) {
-            x1 <- floor(log10(x))
-            x2 <- ceiling(x*10^(n-x1))/10^n
-            x2*10^x1
-        }
-
-        genes <- py_eval('analysis.fit1.to_dataframe().reset_index()') %>%
-                py_to_r() %>%
-                data.table
-        genes <- genes[!is.na(`Pr(>F)`)]
-        genes <- genes[order(q)]
-        genes <- genes[, list(
-            subset, gene,
-            `Pr(>F)`, q, F,
-            Intercept,
-            days_since_onset,
-            `dsm_severity_score_group[T.DSM_low]`,
-            `days_since_onset:dsm_severity_score_group[T.DSM_low]` 
-        )]
-        genes[, `Pr(>F)` := round_mantisa(`Pr(>F)`, 1)]
-        genes[, q := round_mantisa(q, 1)]
-        for(c in setdiff(names(genes), c('q', 'Pr(>F)', 'subset', 'gene'))) {
-            genes[[c]] <- round(genes[[c]], 2)
-        }
-
-        cytokines <- py_eval('analysis.fit2.to_dataframe().reset_index()') %>%
-                py_to_r() %>%
-                data.table
-        cytokines <- cytokines[!is.na(`Pr(>F)`)]
-        cytokines <- cytokines[order(q)]
-        cytokines <- cytokines[, list(
-            cytokine,
-            `Pr(>F)`, q, F,
-            Intercept,
-            days_since_onset,
-            `dsm_severity_score_group[T.DSM_low]`,
-            `days_since_onset:dsm_severity_score_group[T.DSM_low]` 
-        )]
-        cytokines[, `Pr(>F)` := round_mantisa(`Pr(>F)`, 1)]
-        cytokines[, q := round_mantisa(q, 1)]
-        for(c in setdiff(names(cytokines), c('q', 'Pr(>F)', 'cytokine'))) {
-            cytokines[[c]] <- round(cytokines[[c]], 2)
-        }
+        py_run_string('from covid19_cell_atlas._app1 import app1 as app')
+        py_app <- py_eval('app')
 
         plot1 <- reactive({
             row <- req(input$cytokines_rows_selected)
-            cytokines <- cytokines$cytokine[row]
-            data <- analysis$app1_plot1_data(cytokines) %>% data.table
+            cytokines <- py_app$cytokines_table$cytokine[row]
+            data <- py_app$plot1_data(cytokines) %>% data.table
             data <- data[days_since_onset<=40]
             ggplot(data)+
                 aes(x=days_since_onset, y=log2(level))+
@@ -102,8 +58,8 @@ server <- function(input, output, session) {
 
         plot2 <- reactive({
             rows <- req(input$genes_rows_selected)
-            gene <- genes$gene[rows]
-            data <- analysis$app1_plot2_data(gene) %>% data.table
+            gene <- py_app$genes_table$gene[rows]
+            data <- py_app$plot2_data(gene) %>% data.table
 
             ggplot(data)+
                 aes(days_since_onset, y=log2(X+1))+
@@ -116,8 +72,8 @@ server <- function(input, output, session) {
 
         plot3 <- reactive({
             row <- req(input$genes_rows_selected)
-            gene <- genes$gene[row]
-            data <- analysis$app1_plot3_data(gene) %>% data.table
+            gene <- py_app$genes_table$gene[row]
+            data <- py_app$plot3_data(gene) %>% data.table
 
             ggplot(data)+
                 aes(days_since_onset, y=log(X+1))+
@@ -131,7 +87,7 @@ server <- function(input, output, session) {
 
     {
         output$cytokines <- renderDT(
-            cytokines %>%
+            py_app$cytokines_table %>%
                 datatable_scroller(
                     filter = 'top', selection = 'multiple',
                     options = list(dom = 't')
@@ -146,7 +102,7 @@ server <- function(input, output, session) {
         output$plot1 <- renderPlot(plot1())
 
         output$genes <- renderDT(
-            genes %>%
+            py_app$genes_table %>%
                 datatable_scroller(
                     filter = 'top', selection = 'single',
                     options = list(dom = 't')
