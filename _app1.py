@@ -83,6 +83,25 @@ class _app1:
 
         return x
 
+    @property
+    def sigs(self):
+        g = self.analysis.symbol_entrez
+        g = g.rename(
+            Entrez_Gene_ID='entrez',
+            symbol='gene'
+        )
+        g = g.to_series_sparse()
+        g = g.reset_index()
+
+        s = self.analysis.sigs
+        s = s.rename(gene='entrez')
+        s = s.to_series_sparse()
+        s = s.reset_index()
+
+        r = s.merge(g, on='entrez')
+        r = r[['gene', 'sig']].drop_duplicates()
+        return r
+
 app1 = _app1()
 
 #%%

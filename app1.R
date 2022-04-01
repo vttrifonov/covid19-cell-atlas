@@ -1,4 +1,3 @@
-
 library(data.table)
 library(magrittr)
 library(shiny)
@@ -11,30 +10,59 @@ load.module('common')
 py_run_string('from covid19_cell_atlas._app1 import app1 as app')
 py_app <- py_eval('app')
 
-
 app1 <- obj()
 
 app1 %>%
-    lazy_prop(enrich, {
-        py_app$enrich1_table %>%
-            datatable_scroller(
-                filter = 'top', selection = 'single',
-                options = list(dom = 't')
-            )
-    })
+    lazy_prop(enrich_table, reactive({
+        py_app$enrich1_table %>% data.table
+    }))
 
 app1 %>%
-    lazy_prop(genes, {
-        py_app$genes_table %>%
+    lazy_prop(enrich_table_selected, reactive({
+        table <- this$enrich_table()
+        rows <- req(this$input$enrich_rows_selected)
+        table[rows, ]
+    }))
+
+app1 %>%
+    lazy_prop(enrich, reactive({
+        this$enrich_table() %>%
             datatable_scroller(
                 filter = 'top', selection = 'single',
                 options = list(dom = 't')
             )
-    })
+    }))
+
+app1 %>%
+    lazy_prop(genes_table, reactive({
+        .enrich_table <- this$enrich_table_selected()
+        sigs <- py_app$sigs %>% data.table
+        sigs <- sigs[sig==.enrich_table$sig]
+        genes <- py_app$genes_table %>% data.table
+        genes <- genes[subset==.enrich_table$subset]
+        genes <- genes[gene %in% sigs$gene]
+        genes
+    }))
+
+app1 %>%
+    lazy_prop(genes_table_selected, reactive({
+        table <- this$genes_table()
+        rows <- req(this$input$genes_rows_selected)
+        table[rows, ]
+    }))
+
+app1 %>%
+    lazy_prop(genes, reactive({
+        this$genes_table() %>%
+            datatable_scroller(
+                filter = 'top', selection = 'single',
+                options = list(dom = 't')
+            )
+    }))
 
  app1 %>%
     lazy_prop(plot2, reactive({
-        .genes_table <- this$genes_table()
+        .genes_table <- this$genes_table_selected()
         gene <- .genes_table$gene
         data <- py_app$plot2_data(gene) %>% data.table
 
@@ -49,7 +77,7 @@ app1 %>%
 
 app1 %>%
     lazy_prop(plot3, reactive({
-        .genes_table <- this$genes_table()
+        .genes_table <- this$genes_table_selected()
         gene <- .genes_table$gene
         data <- py_app$plot3_data(gene) %>% data.table
 
@@ -87,17 +115,10 @@ app1$ui <- {
 
 app1 %>%
     lazy_prop(server, function(input, output, session) {
-        this$genes_table <- reactive({
-            rows <- req(input$genes_rows_selected)
-            py_app$genes_table[rows,]
-        })
-
-        output$enrich <- renderDT(this$enrich)
-
-        output$genes <- renderDT(this$genes)
-
+        this$input <- input
+        output$enrich <- renderDT(this$enrich())
+        output$genes <- renderDT(this$genes())
         output$plot2 <- renderPlot(this$plot2())
-
         output$plot3 <- renderPlot(this$plot3())
     })
 
@@ -108,11 +129,14 @@ app1 %>%
     ))
 
 test1 <- function() {
-    x <- py_app$genes_table %>% data.table
-    x <- x[gene=='IL6' & subset=='innate']
-    app1$genes_table <- function() x
+    this <- app1
 
-    isolate(app1$plot2())
+    this$input <- reactiveValues(
+        enrich_rows_selected=1,
+        genes_rows_selected=1
+    )
+
+    isolate(this$plot2())
 }
 
 runApp(app1$shiny)
