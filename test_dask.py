@@ -2,7 +2,6 @@
 from dask.distributed import LocalCluster, Client
 from dask import delayed, compute
 
-#%%
 if __name__ == '__main__':
     cluster = LocalCluster(n_workers=2)
     client = Client(cluster)
