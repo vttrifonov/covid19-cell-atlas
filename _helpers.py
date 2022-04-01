@@ -2,6 +2,7 @@
 from pathlib import Path
 import xarray as xa
 import numpy as np
+import pandas as pd
 
 #%%
 class _config:
@@ -24,6 +25,24 @@ def xa_dense(x):
 
 xa.DataArray.todense = xa_dense
 xa.Dataset.todense = xa_dense
+
+def to_series_sparse(x):
+    d = x.data
+    if not hasattr(d, 'coords'):
+        if hasattr(d, 'tocoo'):
+            d = d.tocoo()
+        else:
+            raise ValueError('not sparse')
+    if not hasattr(d, 'data'):
+        raise ValueError('not sparse')
+    
+    s = pd.DataFrame(d.coords.T, columns=x.dims)
+    s[x.name] = d.data
+    for k in x.dims:
+        s[k] = x[k].data[s[k]]
+    s = s.set_index(list(x.dims))
+    return s
+xa.DataArray.to_series_sparse = to_series_sparse
 
 def xa_mmult(x, y, dim_x, dim_y):
     return xa.apply_ufunc(
