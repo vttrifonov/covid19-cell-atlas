@@ -1,4 +1,3 @@
-
 #%%
 
 if __name__=='__main__':
@@ -9,9 +8,10 @@ import pandas as pd
 import numpy as np
 import xarray as xa
 from pathlib import Path
+import sparse
 
 from .common.caching import compose, lazy, XArrayCache
-from ._helpers import config
+from ._helpers import config, xa_mmult
 from .covid19_time_resolved_paper import data as paper
 from ._analysis1 import analysis1
 from ._analysis2 import analysis2
@@ -211,17 +211,58 @@ class _analysis3:
         x8 = x8.set_index(['cytokine']).to_xarray()
         return x8
 
-    @property
-    def sigs(self):
-        from .sigs._sigs import sigs
-        return sigs.all1
-
-    @compose(property, lazy, XArrayCache())
-    def enrich1(self):
-        from .sigs.fit import enrichment
-        x = self.fit1[['F']]
-
 analysis3 = _analysis3()
+
+#%%
+
+@compose(property, XArrayCache())
+def symbol_entrez(self):
+    from .sigs.entrez import symbol_entrez
+
+    x = self.pseudobulk.gene.data
+    x = symbol_entrez(x)
+    return x
+_analysis3.symbol_entrez = symbol_entrez
+
+@property
+def sigs(self):
+    from .sigs._sigs import sigs
+    x = sigs.all1
+    x = x.sel(sig=x.sig_prefix.isin([
+        'REACTOME', 'KEGG1', 
+        'BIOCARTA', 'HALLMARK'
+    ]))
+    return x
+_analysis3.sigs = sigs
+
+@compose(property, lazy)
+def sigs1(self):
+    g = self.symbol_entrez
+    g = g.rename(Entrez_Gene_ID='gene')
+    g = g/g.sum(dim='symbol').todense()
+    g.data = g.data.tocoo()
+
+    t = self.fit1.F.rename(gene='symbol')
+    t = np.log(t).fillna(0)
+    t.data = sparse.COO.from_numpy(t.data)
+    t = xa_mmult(
+        t, g,
+        dim_x=['subset', 'symbol'], dim_y=['symbol', 'gene']
+    )
+
+    s = self.sigs
+
+    r = xa.merge([t.rename('t'), s.rename('s')], join='inner')
+    return r
+_analysis3.sigs1 = sigs1
+
+@compose(property, lazy, XArrayCache())
+def enrich1(self):
+    from .sigs.fit import enrichment
+    t = self.sigs1
+    e = enrichment(t.t, t.s)
+    return e
+_analysis3.enrich1 = enrich1
 
 #%%
 if __name__ == '__main__':
