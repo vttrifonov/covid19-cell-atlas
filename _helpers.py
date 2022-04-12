@@ -3,6 +3,7 @@ from pathlib import Path
 import xarray as xa
 import numpy as np
 import pandas as pd
+import sparse
 
 #%%
 class _config:
@@ -56,3 +57,24 @@ def round_float(x, n=1):
     e = np.floor(np.log10(x))
     m = np.ceil(x*10**(n-e))/10**n
     return m*10**e
+
+def dataarray_from_series(x, fill_value=None):
+    i = x.index.to_frame(index=False)
+    for c in i:
+        if not isinstance(i[c], pd.CategoricalDtype):
+            i[c] = i[c].astype('category')
+
+    d = sparse.COO(
+        [i[c].cat.codes.to_numpy() for c in i],
+        x.to_numpy(),
+        shape = tuple(len(i[c].cat.categories) for c in i),
+        fill_value = fill_value
+    )
+    d = xa.DataArray(
+        d,
+        coords=[(c, i[c].cat.categories) for c in i],
+        name=x.name
+    )
+    return d
+
+
