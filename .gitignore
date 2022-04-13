@@ -9,3 +9,4 @@ dask-worker-space
 .Rproj.user
 *.Rproj
 renv
+*.html
