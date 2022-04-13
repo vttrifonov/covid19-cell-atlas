@@ -18,3 +18,4 @@ pip install --ignore-installe cffi #this might conflict with scanpy
 conda install radian
 
 conda install psycopg2
+conda install notebook
