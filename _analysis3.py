@@ -359,6 +359,8 @@ if __name__ == '__main__':
     x6 = x15.stat_value.to_series()
     print(np.sqrt(x6.ssr/x6.df_resid))
 
+    print(x6)
+
 #%%    
     print(
         ggplot(x5)+aes('days_since_onset', 'days_since_onset_pred', color='status')+
