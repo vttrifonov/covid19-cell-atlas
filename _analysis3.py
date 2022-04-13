@@ -221,101 +221,94 @@ class _analysis3:
         x = fit_gsea(x.t, x.s, 1e5)
         return x
 
-analysis3 = _analysis3()
+    @compose(property, lazy, XArrayCache())
+    def fit_time1(self):
+        import statsmodels.formula.api as smf
+        from statsmodels.stats.anova import anova_lm
+        from .sigs.fit import multipletests
 
-#%%
+        x1 = self.cytokines
+        x1 = x1.sel(cytokine=~x1.cytokine.isin(['IFN-alpha2a']))
+        x1 = x1[['level', 'days_since_onset', 'donor']]
+        x1['level'] = np.log1p(x1.level)/np.log(2)
+        x1 = x1.to_dataframe().reset_index()
+        x1 = x1[~x1['level'].isna()]
 
-@compose(property, lazy, XArrayCache())
-def fit_time1(self):
-#%%    
-    import statsmodels.formula.api as smf
-    from statsmodels.stats.anova import anova_lm
-    from .sigs.fit import multipletests
+        def f1(x):
+            x3 = smf.ols('days_since_onset~1', data=x).fit()
+            x4 = smf.ols('days_since_onset~level', data=x).fit()
+            x5 = anova_lm(x3, x4).loc[[1],:].reset_index(drop=True)
+            x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
+            x5['rsq'] = x5.ss_diff/(x5.ss_diff+x5.ssr)
+            return x5
+        
+        x8 = x1.groupby(['cytokine']).apply(f1)
+        x8 = x8.reset_index().drop(columns='level_1')
+        x8['q'] = multipletests(x8['Pr(>F)'], method='fdr_bh')
+        x8 = x8.set_index(['cytokine']).to_xarray()
 
-    x1 = self.cytokines
-    x1 = x1.sel(cytokine=~x1.cytokine.isin(['IFN-alpha2a']))
-    x1 = x1[['level', 'days_since_onset', 'donor']]
-    x1['level'] = np.log1p(x1.level)/np.log(2)
-    x1 = x1.to_dataframe().reset_index()
-    x1 = x1[~x1['level'].isna()]
+        return x8
 
-    def f1(x):
-        x3 = smf.ols('days_since_onset~1', data=x).fit()
-        x4 = smf.ols('days_since_onset~level', data=x).fit()
-        x5 = anova_lm(x3, x4).loc[[1],:].reset_index(drop=True)
-        x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
-        x5['rsq'] = x5.ss_diff/(x5.ss_diff+x5.ssr)
-        return x5
-    
-    x8 = x1.groupby(['cytokine']).apply(f1)
-    x8 = x8.reset_index().drop(columns='level_1')
-    x8['q'] = multipletests(x8['Pr(>F)'], method='fdr_bh')
-    x8 = x8.set_index(['cytokine']).to_xarray()
+    @compose(property, lazy, XArrayCache())
+    def fit_time2(self):
+        import statsmodels.api as sm
+        from sklearn.decomposition import PCA
+        from statsmodels.stats.anova import anova_lm
 
-#%%
-    return x8
-_analysis3.fit_time1 = fit_time1
+        x9 = self.fit_time1
+        x9 = x9.to_dataframe().reset_index()
+        x9 = x9.sort_values('Pr(>F)')
+        x9 = x9[x9.q<0.05]
 
-@compose(property, lazy, XArrayCache())
-def fit_time2(self):
-    import statsmodels.api as sm
-    from sklearn.decomposition import PCA
-    from statsmodels.stats.anova import anova_lm
+        x1 = self.cytokines
+        x1 = x1[['level', 'days_since_onset', 'donor']]
+        x1 = x1.sel(cytokine=x9.cytokine.to_list())
+        x1['level'] = np.log1p(x1.level)/np.log(2)
+        x1 = x1.to_dataframe().reset_index()
+        x1 = x1[~x1['level'].isna()]
 
-    x9 = self.fit_time1
-    x9 = x9.to_dataframe().reset_index()
-    x9 = x9.sort_values('Pr(>F)')
-    x9 = x9[x9.q<0.05]
+        x5 = x1.groupby(['donor', 'days_since_onset', 'cytokine'])['level'].mean()
+        x5 = x5.reset_index()
+        x5 = x5.pivot_table(index=['days_since_onset', 'donor'], columns='cytokine', values='level')
+        x10 = x5.to_numpy()
+        x18 = x5.columns
+        x5 = x5.reset_index()
+        x11 = np.isnan(x10).sum(axis=1)
+        x5 = x5[x11==0]
+        x10 = x10[x11==0,:]
 
-    x1 = self.cytokines
-    x1 = x1[['level', 'days_since_onset', 'donor']]
-    x1 = x1.sel(cytokine=x9.cytokine.to_list())
-    x1['level'] = np.log1p(x1.level)/np.log(2)
-    x1 = x1.to_dataframe().reset_index()
-    x1 = x1[~x1['level'].isna()]
-
-    x5 = x1.groupby(['donor', 'days_since_onset', 'cytokine'])['level'].mean()
-    x5 = x5.reset_index()
-    x5 = x5.pivot_table(index=['days_since_onset', 'donor'], columns='cytokine', values='level')
-    x10 = x5.to_numpy()
-    x18 = x5.columns
-    x5 = x5.reset_index()
-    x11 = np.isnan(x10).sum(axis=1)
-    x5 = x5[x11==0]
-    x10 = x10[x11==0,:]
-
-    x12 = PCA(n_components=x10.shape[1]).fit(x10)
-    x13 = x12.transform(x10)
-    x13 = [
-        np.c_[[1]*x13.shape[0], x13],
-        np.r_[
-            np.c_[[1], x12.mean_.reshape(1, -1)],
-            np.c_[[0]*x12.n_components, x12.components_]
+        x12 = PCA(n_components=x10.shape[1]).fit(x10)
+        x13 = x12.transform(x10)
+        x13 = [
+            np.c_[[1]*x13.shape[0], x13],
+            np.r_[
+                np.c_[[1], x12.mean_.reshape(1, -1)],
+                np.c_[[0]*x12.n_components, x12.components_]
+            ]
         ]
-    ]
-    x13[1] = np.linalg.pinv(x13[1])
-    
-    x14 = [
-        sm.OLS(x5.days_since_onset.to_numpy(), x13[0][:,:i]).fit()
-        for i in range(1, x13[0].shape[1]+1)
-    ]
-    x14_1 = x14[0]
-    x14 = sorted(x14[1:], key=lambda x: x.f_pvalue)[0]
+        x13[1] = np.linalg.pinv(x13[1])
+        
+        x14 = [
+            sm.OLS(x5.days_since_onset.to_numpy(), x13[0][:,:i]).fit()
+            for i in range(1, x13[0].shape[1]+1)
+        ]
+        x14_1 = x14[0]
+        x14 = sorted(x14[1:], key=lambda x: x.f_pvalue)[0]
 
-    x15 = x13[1][:,:len(x14.params)]@x14.params
-    x15 = pd.Series(x15, index=['const'] + x18.to_list())
-    x16 = anova_lm(x14_1, x14).loc[[1],:].reset_index(drop=True)
-    x16['rsq'] = x16.ss_diff/(x16.ss_diff+x16.ssr)
-    x16 = x16.T[0]
+        x15 = x13[1][:,:len(x14.params)]@x14.params
+        x15 = pd.Series(x15, index=['const'] + x18.to_list())
+        x16 = anova_lm(x14_1, x14).loc[[1],:].reset_index(drop=True)
+        x16['rsq'] = x16.ss_diff/(x16.ss_diff+x16.ssr)
+        x16 = x16.T[0]
 
-    x17 = xa.merge([
-        x15.to_xarray().rename(index='coef').rename('coef_value'),
-        x16.to_xarray().rename(index='stat').rename('stat_value')
-    ])
+        x17 = xa.merge([
+            x15.to_xarray().rename(index='coef').rename('coef_value'),
+            x16.to_xarray().rename(index='stat').rename('stat_value')
+        ])
 
-    return x17
-_analysis3.fit_time2 = fit_time2
+        return x17
 
+analysis3 = _analysis3()
 
 #%%
 if __name__ == '__main__':
