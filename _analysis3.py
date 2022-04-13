@@ -299,6 +299,7 @@ class _analysis3:
         x15 = pd.Series(x15, index=['const'] + x18.to_list())
         x16 = anova_lm(x14_1, x14).loc[[1],:].reset_index(drop=True)
         x16['rsq'] = x16.ss_diff/(x16.ss_diff+x16.ssr)
+        x16['sd'] = np.sqrt(x16.ssr/x16.df_resid)
         x16 = x16.T[0]
 
         x17 = xa.merge([
@@ -314,78 +315,4 @@ analysis3 = _analysis3()
 if __name__ == '__main__':
     self = analysis3
 
-# %%
-    from plotnine import *
-
-# %%
-    x9 = self.fit_time1
-    x9 = x9.to_dataframe().reset_index()
-    x9 = x9.sort_values('Pr(>F)')
-    x9 = x9[x9.q<0.05]
-
-    x15 = self.fit_time2
-
-    x1 = self.cytokines
-    x1 = x1.sel(cytokine=x9.cytokine.to_list())
-    x1 = x1[['level', 'days_since_onset', 'donor', 'status', 'dsm_severity_score', 'dsm_severity_score_group']]
-    x1['level'] = np.log1p(x1.level)/np.log(2)
-    x1 = x1.to_dataframe().reset_index()
-    x1 = x1[~x1['level'].isna()]
-
-    x5 = x1.groupby(['donor', 'days_since_onset', 'cytokine', 'status', 'dsm_severity_score', 'dsm_severity_score_group'])['level'].mean()
-    x5 = x5.reset_index()
-    x5 = x5.pivot_table(index=['days_since_onset', 'donor', 'status', 'dsm_severity_score', 'dsm_severity_score_group'], columns='cytokine', values='level')
-    x5 = x5.reset_index()
-    x5['const'] = 1
-    x5['days_since_onset_pred'] = x5[x15.coef.data].to_numpy() @ x15.coef_value.data
-    x5['delta_days'] = x5.days_since_onset_pred-x5.days_since_onset
-    x5 = x5[~x5.delta_days.isna()]
-
 #%%
-    for x11 in x9.itertuples():
-        x10 = x1[x1.cytokine==x11.cytokine][['days_since_onset', 'level']]
-        x12 = pd.DataFrame(dict(
-            level=[x10.level.min(), x10.level.max()]
-        ))
-        x12['days_since_onset'] = x11.Intercept+x11.level*x12['level']
-        print(
-            ggplot()+aes('level', 'days_since_onset')+
-                geom_point(data=x10)+
-                geom_line(data=x12)+
-                labs(title=x11.cytokine)
-        )
-
-#%%
-    x6 = x15.stat_value.to_series()
-    print(np.sqrt(x6.ssr/x6.df_resid))
-
-    print(x6)
-
-#%%    
-    print(
-        ggplot(x5)+aes('days_since_onset', 'days_since_onset_pred', color='status')+
-            geom_point()+
-            geom_abline(slope=1, intercept=0)
-    )
-
-#%%
-    print(
-        ggplot(x5)+aes('status', 'delta_days')+
-            geom_boxplot()+
-            geom_point()
-    )
-
-#%%
-    print(
-        ggplot(x5)+aes('dsm_severity_score', 'delta_days', color='dsm_severity_score_group')+
-            geom_point()+geom_smooth(method='lm')
-    )
-
-#%%
-    from scipy import stats
-    stats.ttest_ind(
-        x5.delta_days[x5.dsm_severity_score_group=='DSM_high'],
-        x5.delta_days[x5.dsm_severity_score_group=='DSM_low']
-    )
-
-# %%
