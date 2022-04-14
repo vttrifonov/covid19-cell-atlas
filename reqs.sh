@@ -19,3 +19,5 @@ conda install radian
 
 conda install psycopg2
 conda install notebook
+conda  install ffmpeg-python
+conda install ipympl
