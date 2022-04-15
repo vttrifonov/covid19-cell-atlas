@@ -10,6 +10,25 @@ from ._analysis3 import analysis3
 from .common.caching import compose, lazy
 from ._helpers import round_float
 
+def _loess(x, y, w, t):
+    from rpy2.robjects import r, Formula, pandas2ri, numpy2ri, default_converter
+    from rpy2.robjects.conversion import localconverter
+    import rpy2.rinterface as ri
+    r_loess = r['loess']
+
+    with localconverter(
+        default_converter+pandas2ri.converter+numpy2ri.converter
+    ):
+        try:
+            f = r_loess(
+                Formula('y~x'), 
+                pd.DataFrame({'x': x, 'y': y}), w,
+            )
+            f = r['predict'](f, pd.DataFrame({'x': t}))
+        except ri.embedded.RRuntimeError:
+            f = np.full(len(t), np.nan)
+        return f
+
 class _app3:
     analysis = analysis3
 
@@ -132,6 +151,49 @@ class _app3:
         x1 = x1[x1.dsm_severity_score_group!='']
         return x1
 
+    def plot4_data(self, c, d, w=1):
+        x, _, _ = self.analysis.fit_level2_data
+        x = x[x.cytokine==c].copy()
+        x2 = x.groupby(x.donor==d).size()
+        x.loc[x.donor==d, 'weight'] = w*1/x2[True]
+        x.loc[x.donor!=d, 'weight'] = 1*1/x2[False]
+        x['nw'] = np.round(x.weight*(1/x.weight).max())
+
+        #x4 = np.concatenate([np.repeat(*x) for x in enumerate(x.nw)])
+        #x4 = x.iloc[x4,:]
+
+        x4 = x.copy()
+        x5 = x[x.donor==d].copy().assign(weight=1)
+        x7 = x.copy().assign(weight=1)
+
+        #def f1(d, t):
+        #    import statsmodels.api as sm        
+        #    return sm.nonparametric.lowess(d.level, d.days_since_onset, xvals=t)
+
+        def f1(d, t):
+            return _loess(
+                d.days_since_onset.to_numpy(),
+                d.level.to_numpy(),
+                d.weight.to_numpy(),
+                t
+            )
+
+        x6 = np.quantile(x.days_since_onset, [0,1])
+        x6 = np.linspace(*x6, 100)
+        x6 = pd.DataFrame({
+            'days_since_onset': x6,
+            'pred1': f1(x4, x6),
+            'pred2': f1(x5, x6),
+            'pred3': f1(x7, x6)
+        })
+        x6 = x6.melt(id_vars='days_since_onset')
+        x6 = x6.rename(columns={'value': 'level'})
+
+        x7 = np.quantile(x['level'], [0,1])
+        x6 = x6[x6.level>=x7[0]]
+        x6 = x6[x6.level<=x7[1]]
+        return x, x6
+
 app3 = _app3()
 
 #%%
@@ -156,6 +218,27 @@ if __name__ == '__main__':
             geom_line(data=x2[x2.variable=='pred3'], linetype='solid')+
             theme(legend_position='none')
     )
+
+#%%
+    x = self.fit_level2
+    x = x[x.cytokine=='IFN-gamma']
+    x = x[x.n==4]
+    r = list(x.itertuples())[0]
+    c, d, w = r.cytokine, r.donor, 1
+
+    for r in x.itertuples():
+        x1, x2 = self.plot4_data(r.cytokine, r.donor, 2)
+        print(
+            ggplot(x1)+
+                aes('days_since_onset', 'level')+
+                geom_point(aes(color=f'donor=="{r.donor}"'))+
+                geom_line(aes(group='donor', color=f'donor=="{r.donor}"'))+
+                geom_line(data=x2[x2.variable=='pred1'], linetype='dotted')+
+                geom_line(data=x2[x2.variable=='pred2'], linetype='dashed')+
+                geom_line(data=x2[x2.variable=='pred3'], linetype='solid')+
+                theme(legend_position='none')+
+                scale_color_manual(['lightgray', 'red'])
+        )
 
 #%%
     x2 = self.data2_pca
