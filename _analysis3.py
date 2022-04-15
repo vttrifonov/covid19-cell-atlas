@@ -310,6 +310,88 @@ class _analysis3:
 
         return x17
 
+    @compose(property, lazy, XArrayCache()) 
+    def fit_level1(self):
+        import statsmodels.formula.api as smf
+        from statsmodels.stats.anova import anova_lm
+        from .sigs.fit import multipletests
+
+        x1 = self.cytokines
+        x1 = x1.sel(cytokine=~x1.cytokine.isin(['IFN-alpha2a', 'Ferritin']))
+        x1 = x1[[
+            'level', 'days_since_onset', 'donor',
+            'dsm_severity_score', 'dsm_severity_score_group', 'status'
+        ]]
+        x1['level'] = np.log1p(x1.level)/np.log(2)
+        x1 = x1.to_dataframe().reset_index()
+        x1 = x1[~x1['level'].isna()]
+        x1['days_since_onset_2'] = x1['days_since_onset']**2
+
+        x2 = x1[['donor', 'cytokine']].value_counts().reset_index()
+        x2 = x2[x2[0]>=3].set_index(['donor', 'cytokine'])[0].to_xarray()
+        x2 = x2.sel(cytokine=x2.isnull().sum(dim='donor')==0)
+        x1 = x1[x1.donor.isin(x2.donor.data)]
+        x1 = x1[x1.cytokine.isin(x2.cytokine.data)]
+
+        def f1(x):
+            x3 = smf.ols('level~1', data=x).fit()
+            x4 = smf.ols('level~days_since_onset', data=x).fit()
+            x5 = anova_lm(x3, x4).loc[[1],:].reset_index(drop=True)
+            x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
+            x5['rsq'] = x5.ss_diff/(x5.ss_diff+x5.ssr)
+            return x5
+        
+        x8 = x1.groupby(['cytokine', 'donor']).apply(f1)
+        x8 = x8.reset_index().drop(columns='level_2')
+        x8['q'] = multipletests(x8['Pr(>F)'], method='fdr_bh')
+        x8 = x8.set_index(['donor', 'cytokine']).to_xarray()
+
+    @compose(property, lazy)
+    def fit_level2_data(self):
+        x1 = self.cytokines
+        x1 = x1.sel(cytokine=~x1.cytokine.isin(['IFN-alpha2a', 'Ferritin']))
+        x1 = x1[[
+            'level', 'days_since_onset', 'donor',
+            'dsm_severity_score', 'dsm_severity_score_group', 'status'
+        ]]
+        x1['level'] = np.log1p(x1.level)/np.log(2)
+        x1 = x1.to_dataframe().reset_index()
+        x1 = x1[~x1['level'].isna()]
+        nd = 1+2
+        for d in range(nd):
+            x1[f'days_since_onset_{d}'] = x1['days_since_onset']**d 
+        f = [f'days_since_onset_{d}' for d in range(nd)]
+        f = '+'.join(f)
+        f = f'level~0+{f}'
+
+        return x1, nd, f
+
+    @compose(property, lazy, XArrayCache())
+    def fit_level2(self):
+        import statsmodels.formula.api as smf
+
+        x1, _, f = self.fit_level2_data
+
+        def f2(x):
+            def f3(d):
+                x2 = x.groupby(x.donor==d).size()
+                x.loc[x.donor==d, 'weight'] = 10*1/x2[True]
+                x.loc[x.donor!=d, 'weight'] = 1*1/x2[False]
+                x5 = smf.wls(f, data=x, weights=x.weight).fit()
+                x5 = pd.concat([
+                    pd.DataFrame({'p': [x5.f_pvalue]}),
+                    pd.DataFrame(x5.params).T
+                ], axis=1)
+                return x5
+            x5 = [f3(d).assign(donor=d) for d in x.donor.drop_duplicates()]
+            x5 = pd.concat(x5)
+            return x5
+
+        x8 = x1.groupby(['cytokine']).apply(f2)
+        x8 = x8.reset_index().drop(columns='level_1')
+        x8 = x8.set_index(['donor', 'cytokine']).to_xarray()
+        return x8
+    
 analysis3 = _analysis3()
 
 #%%
@@ -317,105 +399,3 @@ if __name__ == '__main__':
     self = analysis3
 
 #%%
-    import statsmodels.formula.api as smf
-    from statsmodels.stats.anova import anova_lm
-    from .sigs.fit import multipletests
-
-    x1 = self.cytokines
-    x1 = x1.sel(cytokine=~x1.cytokine.isin(['IFN-alpha2a', 'Ferritin']))
-    x1 = x1[[
-        'level', 'days_since_onset', 'donor',
-        'dsm_severity_score', 'dsm_severity_score_group', 'status'
-    ]]
-    x1['level'] = np.log1p(x1.level)/np.log(2)
-    x1 = x1.to_dataframe().reset_index()
-    x1 = x1[~x1['level'].isna()]
-    x1['days_since_onset_2'] = x1['days_since_onset']**2
-
-    x2 = x1[['donor', 'cytokine']].value_counts().reset_index()
-    x2 = x2[x2[0]>=3].set_index(['donor', 'cytokine'])[0].to_xarray()
-    x2 = x2.sel(cytokine=x2.isnull().sum(dim='donor')==0)
-    x1 = x1[x1.donor.isin(x2.donor.data)]
-    x1 = x1[x1.cytokine.isin(x2.cytokine.data)]
-
-    def f1(x):
-        x3 = smf.ols('level~1', data=x).fit()
-        x4 = smf.ols('level~days_since_onset', data=x).fit()
-        x5 = anova_lm(x3, x4).loc[[1],:].reset_index(drop=True)
-        x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
-        x5['rsq'] = x5.ss_diff/(x5.ss_diff+x5.ssr)
-        return x5
-    
-    x8 = x1.groupby(['cytokine', 'donor']).apply(f1)
-    x8 = x8.reset_index().drop(columns='level_2')
-    x8['q'] = multipletests(x8['Pr(>F)'], method='fdr_bh')
-    x8 = x8.set_index(['donor', 'cytokine']).to_xarray()
-
-#%%
-    def _(t):
-        return x8.Intercept+t*x8.days_since_onset
-    x9 = [_(t).expand_dims(t=[t]) for t in np.linspace(0, 28, num=100)]
-    x9 = xa.concat(x9, dim='t')
-
-#%%
-    from sklearn.decomposition import PCA
-
-    pca = PCA(n_components=2)
-    x10 = xa.apply_ufunc(
-        lambda x: pca.fit_transform(x), x9,
-        input_core_dims=[['donor', 'cytokine']],
-        output_core_dims=[['donor', 'pc']],
-        vectorize=True
-    )
-    x10 = x10.assign_coords(pc=['pc1', 'pc2'])
-    x10 = x10.rename('value')
-
-    for i in range(1, x10.sizes['t']):
-        for j in range(2):
-            x12 = x10[i-1,:,j]
-            x13 = x10[i,:,j]
-            x14 = [
-                ((x12+x13)**2).sum().data,
-                ((x12-x13)**2).sum().data
-            ]
-            x14 = 2*np.argmin(x14)-1
-            x10[i,:,j] = x14*x13
-
-# %%
-    x1 = self.cytokines[['donor', 'dsm_severity_score', 'dsm_severity_score_group', 'status']]
-    x1 = x1.to_dataframe().drop_duplicates()
-    x2 = x10.to_dataframe().reset_index()
-    x2 = x2.pivot_table(index=['t', 'donor'], columns='pc', values='value').reset_index()
-    x2 = x2.merge(x1, on='donor')
-    x2 = x2[x2.dsm_severity_score_group!='']
-
-#%%
-    from plotnine import *
-    l = 200
-    x4 = np.quantile(x2.pc1, [0,1])
-    x5 = np.quantile(x2.pc2, [0,1])
-    x3 = [
-        ggplot(x)+
-            aes(
-                f'np.clip(pc1, -{l}, {l})', 
-                f'np.clip(pc2, -{l}, {l})', 
-                color='status'
-            )+
-            geom_point()+
-            labs(title=str(t))+
-            lims(x=x4, y=x5)
-        for t, x in x2.groupby('t')
-    ]
-
-# %%
-    from plotnine.animation import PlotnineAnimation
-    #from matplotlib import rc
-    #rc('animation', html='html5')
-    #%matplotlib ipympl
-
-    p = PlotnineAnimation(
-        x3, interval=50, repeat_delay=500
-    )
-    p.save('xxx.mp4')
-
-# %%
