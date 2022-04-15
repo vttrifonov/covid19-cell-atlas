@@ -10,3 +10,4 @@ dask-worker-space
 *.Rproj
 renv
 *.html
+*.mp4
