@@ -78,3 +78,27 @@ def dataarray_from_series(x, fill_value=None):
     return d
 
 
+def loess(x, y, w = None, t = None):
+    from rpy2.robjects import r, Formula, pandas2ri, numpy2ri, default_converter
+    from rpy2.robjects.conversion import localconverter
+    import rpy2.rinterface as ri
+    r_loess = r['loess']
+
+    if w is None:
+        w = np.ones_like(x)
+
+    if t is None:
+        t = x
+
+    with localconverter(
+        default_converter+pandas2ri.converter+numpy2ri.converter
+    ):
+        try:
+            f = r_loess(
+                Formula('y~x'), 
+                pd.DataFrame({'x': x, 'y': y}), w,
+            )
+            f = r['predict'](f, pd.DataFrame({'x': t}))
+        except ri.embedded.RRuntimeError:
+            f = np.full(len(t), np.nan)
+        return f
