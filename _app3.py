@@ -10,11 +10,17 @@ from ._analysis3 import analysis3
 from .common.caching import compose, lazy
 from ._helpers import round_float
 
-def _loess(x, y, w, t):
+def _loess(x, y, w = None, t = None):
     from rpy2.robjects import r, Formula, pandas2ri, numpy2ri, default_converter
     from rpy2.robjects.conversion import localconverter
     import rpy2.rinterface as ri
     r_loess = r['loess']
+
+    if w is None:
+        w = np.ones_like(x)
+
+    if t is None:
+        t = x
 
     with localconverter(
         default_converter+pandas2ri.converter+numpy2ri.converter
@@ -141,6 +147,7 @@ class _app3:
     def plot3_cytokines(self):
         return self.fit_level2.cytokine.drop_duplicates().to_list()
 
+
     def plot3_data(self, c):
         x1 = self.data2.rename('level')
         x1 = x1.sel(cytokine=c)
@@ -157,8 +164,8 @@ class _app3:
         x2 = x.groupby(x.donor==d).size()
         x.loc[x.donor==d, 'weight'] = w*1/x2[True]
         x.loc[x.donor!=d, 'weight'] = 1*1/x2[False]
-        x['nw'] = np.round(x.weight*(1/x.weight).max())
 
+        #x['nw'] = np.round(x.weight*(1/x.weight).max())
         #x4 = np.concatenate([np.repeat(*x) for x in enumerate(x.nw)])
         #x4 = x.iloc[x4,:]
 
@@ -194,6 +201,51 @@ class _app3:
         x6 = x6[x6.level<=x7[1]]
         return x, x6
 
+    def plot4_data1(self, c, d, w=1):
+        def _loess1(x1, y1, g, w, t):
+            x1 = x1.to_numpy()
+            y1 = y1.to_numpy()
+            g = g.to_numpy()
+
+            g3 = np.unique(g)
+            x3 = np.zeros((len(g3), len(t)))
+            for i in range(len(g3)):
+                x4 = g==g3[i]
+                _, x2 = np.unique(x4, return_counts=True)
+                x4 = np.where(x4, w*1/x2[1], 1/x2[0])
+                x3[i,:] = _loess(x1, y1, w=x4, t=t)
+            x3 = xa.DataArray(
+                x3,
+                coords=[('donor', g3), ('t', t)]
+            )
+            return x3
+
+        def _loess2(x1, y1, t):
+            x1 = x1.to_numpy()
+            y1 = y1.to_numpy()
+            return _loess(x1, y1, t=t)
+            
+        x, _, _ = self.analysis.fit_level2_data
+        x = x[x.cytokine==c].copy()
+        x2 = x[x.donor==d]
+
+        x6 = np.quantile(x.days_since_onset, [0,1])
+        x6 = np.linspace(*x6, 100)
+        x6 = pd.DataFrame({
+            'days_since_onset': x6,
+            'pred1': _loess1(x.days_since_onset, x.level, x.donor, w, x6).sel(donor=d).data,
+            'pred2': _loess2(x2.days_since_onset, x2.level, x6),
+            'pred3': _loess2(x.days_since_onset, x.level, x6)
+        })
+        x6 = x6.melt(id_vars='days_since_onset')
+        x6 = x6.rename(columns={'value': 'level'})
+
+        x7 = np.quantile(x['level'], [0,1])
+        x6 = x6[x6.level>=x7[0]]
+        x6 = x6[x6.level<=x7[1]]
+        return x, x6
+
+
 app3 = _app3()
 
 #%%
@@ -222,12 +274,12 @@ if __name__ == '__main__':
 #%%
     x = self.fit_level2
     x = x[x.cytokine=='IFN-gamma']
-    x = x[x.n==4]
+    x = x[x.n==1]
     r = list(x.itertuples())[0]
     c, d, w = r.cytokine, r.donor, 1
 
     for r in x.itertuples():
-        x1, x2 = self.plot4_data(r.cytokine, r.donor, 2)
+        x1, x2 = self.plot4_data1(r.cytokine, r.donor, 2)
         print(
             ggplot(x1)+
                 aes('days_since_onset', 'level')+
