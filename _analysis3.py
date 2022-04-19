@@ -3,10 +3,7 @@
 if __name__=='__main__':
     __package__ = 'covid19_cell_atlas'
 
-from contextlib import AbstractContextManager
 from pathlib import Path
-from re import X
-from matplotlib import animation
 import pandas as pd
 import numpy as np
 import xarray as xa
