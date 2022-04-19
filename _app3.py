@@ -153,7 +153,7 @@ class _app3:
         #    return sm.nonparametric.lowess(d.level, d.days_since_onset, xvals=t)
 
         def f1(d, t):
-            return _loess(
+            return loess(
                 d.days_since_onset.to_numpy(),
                 d.level.to_numpy(),
                 d.weight.to_numpy(),
@@ -200,25 +200,38 @@ class _app3:
 
         return x3
 
-    def _fit_level4(self, c, w):
+    def _fit_level4(self, c, w, sigma2, nt):
+        from scipy.spatial.distance import pdist, squareform
+
         x, _, _ = self.analysis.fit_level2_data
         x = x[x.cytokine==c]
+        x = x[x.days_since_onset<=40]
         x6 = np.quantile(x.days_since_onset, [0,1])
-        x6 = np.linspace(*x6, 100)
+        x6 = np.linspace(*x6, 50)
 
         x1 = x.days_since_onset.to_numpy()
         y1 = x.level.to_numpy()
         g = x.donor.to_numpy()
 
-        g3 = np.unique(g)
+        g3, g4 = np.unique(g, return_inverse=True)
         x3 = np.zeros((len(g3), len(x6)))
-        x5 = np.ones((len(x3), len(x1)))
-        for i in range(len(g3)):
-            x4 = g==g3[i]
-            x7 = x5[i,:]
-            x7[x4] = w*x7[x4]/x7[x4].sum()
-            x7[~x4] = x7[~x4]/x7[~x4].sum()
-            x3[i,:] = loess(x1, y1, w=x7, t=x6)
+        x5 = np.ones((len(g3), len(g3)))
+        for j in range(nt):
+            for i in range(len(g3)):
+                x7 = x5[i,g4]
+                #x7 = x7/x7.sum()
+                x4 = g==g3[i]
+                x7[x4] = w*x7[x4]/x7[x4].sum()
+                x7[~x4] = x7[~x4]/x7[~x4].sum()
+                x8 = ~np.isnan(x7)
+                x3[i,:] = loess(x1[x8], y1[x8], w=x7[x8], t=x6)
+            x5 = squareform(pdist(x3)**2)
+            x5 = np.exp(-x5/sigma2)
+
+            import matplotlib.pyplot as plt
+            p = plt.imshow(x5)
+            plt.show()
+            
         x3 = xa.DataArray(
             x3,
             coords=[('donor', g3), ('t', x6)]
@@ -226,16 +239,16 @@ class _app3:
 
         return x3
     
-    def plot4_data1(self, c, d, w=1):
+    def plot4_data1(self, x3, d):
         def loess2(x1, y1, t):
             x1 = x1.to_numpy()
             y1 = y1.to_numpy()
             return loess(x1, y1, t=t)
-            
+
         x1, _, _ = self.analysis.fit_level2_data
-        x1 = x1[x1.cytokine==c].copy()
+        x1 = x1[x1.cytokine==x3.cytokine.data[0]].copy()
         x2 = x1[x1.donor==d]
-        x3 = self._fit_level4(c, w).sel(donor=d)
+        x3 = x3.sel(donor=d)            
 
         x6 = x3.t.data
         x6 = pd.DataFrame({
@@ -262,6 +275,78 @@ if __name__ == '__main__':
     self = app3
 
 #%%
+self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
+
+#%%
+    from scipy.spatial.distance import pdist, squareform
+    from scipy.cluster.hierarchy import dendrogram, linkage
+    import matplotlib.pyplot as plt
+
+    x1 = self._fit_level4('ST2/IL-33R', 3, 100, 10).rename('level')
+    x2 = linkage(x1.data[0], 'average')
+
+    x4 = x1.donor.to_dataframe().reset_index(drop=True).reset_index()
+    x3 = self.analysis.cytokines[['donor', 'dsm_severity_score_group']]
+    x3 = x3.to_dataframe().drop_duplicates()
+    x4 = x4.merge(x3, on='donor')    
+    x4['label'] = x4['index'].astype(str)+' '+x4.dsm_severity_score_group
+
+#%%
+    import statsmodels.api as sm
+
+    plt.figure(figsize=(10, 4))
+    p = dendrogram(x2, labels=None, color_threshold=7.5)
+
+    x4.loc[np.array(p['ivl']).astype(np.int32), 'ord'] = range(x4.shape[0])
+    x4['clust'] = pd.Series(p['leaves_color_list'])[x4.ord].to_list()
+
+    x5 = np.array(p['ivl']).astype(np.int32)
+    x5 = x1.data[0][x4.sort_values('ord')['index'],:]
+    #x5 = np.clip(x5, 0, 10)
+    plt.figure(figsize=(10, 15))
+    q = plt.imshow(x5)
+    plt.show()
+
+    x6 = x4[['clust', 'dsm_severity_score_group']]
+    x6 = x6[x6.dsm_severity_score_group!='']
+    x6 = sm.stats.Table.from_data(x6)
+    
+    print(x6.table_orig)
+    print(np.round(x6.fittedvalues))
+    print(x6.resid_pearson)
+    print(x6.chi2_contribs)
+    print(x6.test_nominal_association().pvalue)
+
+#%%
+    x7 = x1.to_dataframe().reset_index()
+    x7 = x7.merge(x4, on='donor')
+    x7 = x7[x7.dsm_severity_score_group!='']
+    print(
+        ggplot(x7)+aes('t', 'level', color='dsm_severity_score_group')+
+            geom_line(aes(group='donor'))+
+            facet_grid('clust~.', scales='free_y')
+    )
+
+
+#%%   
+    for d in x4[x4.clust=='C2'].donor:
+        x5, x6 = self.plot4_data1(x1, d)
+        print(
+            ggplot(x5)+
+                aes('days_since_onset', 'level')+
+                geom_point(aes(color=f'donor=="{d}"'))+
+                geom_line(aes(group='donor', color=f'donor=="{d}"'))+
+                geom_line(data=x6[x6.variable=='pred1'], linetype='dotted')+
+                geom_line(data=x6[x6.variable=='pred2'], linetype='dashed')+
+                geom_line(data=x6[x6.variable=='pred3'], linetype='solid')+
+                theme(legend_position='none')+
+                scale_color_manual(['lightgray', 'red'])
+        )
+
+#%%
+    
+    
+#%%
     self.fit_level2
 
 #%%
@@ -277,27 +362,6 @@ if __name__ == '__main__':
             geom_line(data=x2[x2.variable=='pred3'], linetype='solid')+
             theme(legend_position='none')
     )
-
-#%%
-    x = self.fit_level2
-    x = x[x.cytokine=='IFN-gamma']
-    x = x[x.n==4]
-    r = list(x.itertuples())[0]
-    c, d, w = r.cytokine, r.donor, 1
-
-    for r in x.itertuples():
-        x1, x2 = self.plot4_data1(r.cytokine, r.donor, 2)
-        print(
-            ggplot(x1)+
-                aes('days_since_onset', 'level')+
-                geom_point(aes(color=f'donor=="{r.donor}"'))+
-                geom_line(aes(group='donor', color=f'donor=="{r.donor}"'))+
-                geom_line(data=x2[x2.variable=='pred1'], linetype='dotted')+
-                geom_line(data=x2[x2.variable=='pred2'], linetype='dashed')+
-                geom_line(data=x2[x2.variable=='pred3'], linetype='solid')+
-                theme(legend_position='none')+
-                scale_color_manual(['lightgray', 'red'])
-        )
 
 #%%
     x2 = self.data2_pca
