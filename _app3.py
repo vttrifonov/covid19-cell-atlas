@@ -2,6 +2,7 @@
 if __name__=='__main__':
     __package__ = 'covid19_cell_atlas'
 
+from re import X
 import pandas as pd
 import numpy as np
 import xarray as xa
@@ -9,6 +10,44 @@ import xarray as xa
 from ._analysis3 import analysis3
 from .common.caching import compose, lazy
 from ._helpers import round_float, loess
+
+def gmm_score(x, comp, covariance_type='full', n_perm = 0):
+    from sklearn.mixture import GaussianMixture
+
+    def score(comp):
+        resp = np.zeros((x.shape[0], comp.max()+1))
+        resp[np.arange(resp.shape[0]), comp] = 1.0
+        gmm = GaussianMixture(
+            n_components = resp.shape[1], 
+            covariance_type = covariance_type
+        )
+        gmm._initialize(x, resp)
+        return gmm.score(x)
+    
+    s, p = score(comp), np.nan
+    if n_perm > 0:
+        p = np.array([
+            score(np.random.permutation(comp))>s
+            for _ in range(n_perm)
+        ]).mean()
+    return s, p
+
+def xa_pca(x, dims, pc):
+    x = x.copy()
+    dims = tuple(dims)
+    d = np.array(list(x.sizes.keys()))
+    d = tuple(d[~np.isin(d, dims)])
+    x = x.transpose(*(d+dims))
+    m = x.mean(dim=dims[0])
+    x = x - m
+    u, s, vt = np.linalg.svd(x.data, full_matrices=False)
+    r = xa.Dataset(coords=x.coords)
+    r['mean'] = m
+    r['u'] = ((d+(dims[0], pc)), u)
+    r['s'] = ((d+(pc,)), s)
+    r['v'] = ((d+(dims[1], pc)), vt.T)
+    return r
+
 
 class _app3:
     analysis = analysis3
@@ -265,7 +304,6 @@ class _app3:
         x6 = x6[x6.level<=x7[1]]
         return x1, x6
 
-
 app3 = _app3()
 
 #%%
@@ -282,7 +320,7 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
     from scipy.cluster.hierarchy import dendrogram, linkage
     import matplotlib.pyplot as plt
 
-    x1 = self._fit_level4('ST2/IL-33R', 3, 100, 10).rename('level').to_dataset()
+    x1 = self._fit_level4('IL-17', 3, 100, 10).rename('level').to_dataset()
     x1['dist'] = (('cytokine', 'donor', 'donor'), squareform(pdist(x1['level'].data[0]))[np.newaxis,...])
     x2 = linkage(squareform(x1['dist'].data[0]), 'average')
     x3 = self.analysis.cytokines[['donor', 'dsm_severity_score_group']]
@@ -293,18 +331,18 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
     import statsmodels.api as sm
 
     plt.figure(figsize=(10, 4))
-    p = dendrogram(x2, labels=None, color_threshold=7.5)
+    p = dendrogram(x2, labels=None, color_threshold=4)
 
     x4 = np.array(p['ivl']).astype(np.int32)
 
     x1 = xa.merge([
-        x1,
         pd.DataFrame({
             'donor': x1.donor.data[x4],
             'clust': p['leaves_color_list'], 
             'ord': range(len(x4))
-        }).set_index('donor').to_xarray()
-    ])
+        }).set_index('donor').to_xarray(),
+        x1
+    ], compat='override')
 
     x5 = x1['level'].data[0][x4,:]
     plt.figure(figsize=(10, 15))
@@ -348,54 +386,12 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
 
 #%%
     x2 = x1.sel(donor=x1.dsm_severity_score_group!='')
+    x2 = x2.rename(dsm_severity_score_group='group')
     x2 = x2.sel(cytokine=x2.cytokine.data[0])
-    #x2['level'] = x2.level-x2.level.mean(dim='t')
-    #x2['level'] = x2.level/np.sqrt((x2.level**2).sum(dim='t'))
-    x2 = dict(list(x2.groupby('dsm_severity_score_group')))
-    
-    X = x2['DSM_high'].level.data
-    Y = x2['DSM_low'].level.data
-    
-    Xu, Xs, Xvt = np.linalg.svd(X, full_matrices=False)
-    Xs = np.diag(Xs)
-    Yu, Ys, Yvt = np.linalg.svd(Y, full_matrices=False)
-    Ys = np.diag(Ys)
+    x3 = pd.Categorical(x2.group.to_series(), categories=['DSM_low', 'DSM_high']).codes
 
-    A = X @ X.T 
-    B = X @ Y.T
-    C = B.T
-    D = Y @ Y.T
+    print(gmm_score(x2.level.data, x3, n_perm=1000))
 
-    X = Xu @ Xs**2 @ Xu.T
-    B = Xu @ Xs @ Xvt @ Yvt.T @ Ys @ Yu
-    C = B.T
-    D = Yu @ np.diag(Ys**2) @ Yu.T
-
-    A = np.eye(X.shape[0])
-    B = Xu @ Xvt @ Yvt.T @ Yu.T
-    C = B.T
-    D = np.eye(Y.shape[0])
-
-    M = A - B @ B.T
-    M = np.eye(X.shape[0]) - Xu @ Xvt @ Yvt.T @ Yu.T @ Yu @ Yvt @ Xvt.T @ Xu.T
-    M = np.eye(X.shape[0]) - Xu @ Xvt @ Yvt.T @ Yvt @ Xvt.T @ Xu.T
-    M = np.eye(len(Xs)) - Xvt @ Yvt.T @ Yvt @ Xvt.T
-
-    W = Xvt @ Yvt.T
-    Wu, Ws, Wvt = np.linalg.svd(W, full_matrices=False)
-    Ws = np.diag(Ws)
-    M = np.eye(len(Xs)) - Wu @ ((Ws)**2) @ Wu.T
-    np.diag(Ws)
-
-
-
-
-
-
-
-
-
-    
 #%%
     self.fit_level2
 
