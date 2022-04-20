@@ -54,9 +54,10 @@ def xa_mmult(x, y, dim_x, dim_y):
     )
 
 def round_float(x, n=1):
+    s, x = np.sign(x), np.abs(x)
     e = np.floor(np.log10(x))
     m = np.ceil(x*10**(n-e))/10**n
-    return m*10**e
+    return s*m*10**e
 
 def dataarray_from_series(x, fill_value=None):
     i = x.index.to_frame(index=False)
