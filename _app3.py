@@ -282,14 +282,12 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
     from scipy.cluster.hierarchy import dendrogram, linkage
     import matplotlib.pyplot as plt
 
-    x1 = self._fit_level4('ST2/IL-33R', 3, 100, 10).rename('level')
-    x2 = linkage(x1.data[0], 'average')
-
-    x4 = x1.donor.to_dataframe().reset_index(drop=True).reset_index()
+    x1 = self._fit_level4('ST2/IL-33R', 3, 100, 10).rename('level').to_dataset()
+    x1['dist'] = (('cytokine', 'donor', 'donor'), squareform(pdist(x1['level'].data[0]))[np.newaxis,...])
+    x2 = linkage(squareform(x1['dist'].data[0]), 'average')
     x3 = self.analysis.cytokines[['donor', 'dsm_severity_score_group']]
-    x3 = x3.to_dataframe().drop_duplicates()
-    x4 = x4.merge(x3, on='donor')    
-    x4['label'] = x4['index'].astype(str)+' '+x4.dsm_severity_score_group
+    x3 = x3.to_dataframe().drop_duplicates().set_index('donor').to_xarray()
+    x1 = xa.merge([x1, x3])
 
 #%%
     import statsmodels.api as sm
@@ -297,17 +295,23 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
     plt.figure(figsize=(10, 4))
     p = dendrogram(x2, labels=None, color_threshold=7.5)
 
-    x4.loc[np.array(p['ivl']).astype(np.int32), 'ord'] = range(x4.shape[0])
-    x4['clust'] = pd.Series(p['leaves_color_list'])[x4.ord].to_list()
+    x4 = np.array(p['ivl']).astype(np.int32)
 
-    x5 = np.array(p['ivl']).astype(np.int32)
-    x5 = x1.data[0][x4.sort_values('ord')['index'],:]
-    #x5 = np.clip(x5, 0, 10)
+    x1 = xa.merge([
+        x1,
+        pd.DataFrame({
+            'donor': x1.donor.data[x4],
+            'clust': p['leaves_color_list'], 
+            'ord': range(len(x4))
+        }).set_index('donor').to_xarray()
+    ])
+
+    x5 = x1['level'].data[0][x4,:]
     plt.figure(figsize=(10, 15))
     q = plt.imshow(x5)
     plt.show()
 
-    x6 = x4[['clust', 'dsm_severity_score_group']]
+    x6 = x1[['clust', 'dsm_severity_score_group']].to_dataframe()
     x6 = x6[x6.dsm_severity_score_group!='']
     x6 = sm.stats.Table.from_data(x6)
     
@@ -318,8 +322,7 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
     print(x6.test_nominal_association().pvalue)
 
 #%%
-    x7 = x1.to_dataframe().reset_index()
-    x7 = x7.merge(x4, on='donor')
+    x7 = x1[['level', 'dsm_severity_score_group', 'clust']].to_dataframe().reset_index()
     x7 = x7[x7.dsm_severity_score_group!='']
     print(
         ggplot(x7)+aes('t', 'level', color='dsm_severity_score_group')+
@@ -329,8 +332,8 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
 
 
 #%%   
-    for d in x4[x4.clust=='C2'].donor:
-        x5, x6 = self.plot4_data1(x1, d)
+    for d in x1.sel(donor=x1.clust=='C2').donor.data:
+        x5, x6 = self.plot4_data1(x1['level'], d)
         print(
             ggplot(x5)+
                 aes('days_since_onset', 'level')+
@@ -344,7 +347,54 @@ self.analysis.fit2.to_dataframe().reset_index().sort_values('Pr(>F)').head(100)
         )
 
 #%%
+    x2 = x1.sel(donor=x1.dsm_severity_score_group!='')
+    x2 = x2.sel(cytokine=x2.cytokine.data[0])
+    #x2['level'] = x2.level-x2.level.mean(dim='t')
+    #x2['level'] = x2.level/np.sqrt((x2.level**2).sum(dim='t'))
+    x2 = dict(list(x2.groupby('dsm_severity_score_group')))
     
+    X = x2['DSM_high'].level.data
+    Y = x2['DSM_low'].level.data
+    
+    Xu, Xs, Xvt = np.linalg.svd(X, full_matrices=False)
+    Xs = np.diag(Xs)
+    Yu, Ys, Yvt = np.linalg.svd(Y, full_matrices=False)
+    Ys = np.diag(Ys)
+
+    A = X @ X.T 
+    B = X @ Y.T
+    C = B.T
+    D = Y @ Y.T
+
+    X = Xu @ Xs**2 @ Xu.T
+    B = Xu @ Xs @ Xvt @ Yvt.T @ Ys @ Yu
+    C = B.T
+    D = Yu @ np.diag(Ys**2) @ Yu.T
+
+    A = np.eye(X.shape[0])
+    B = Xu @ Xvt @ Yvt.T @ Yu.T
+    C = B.T
+    D = np.eye(Y.shape[0])
+
+    M = A - B @ B.T
+    M = np.eye(X.shape[0]) - Xu @ Xvt @ Yvt.T @ Yu.T @ Yu @ Yvt @ Xvt.T @ Xu.T
+    M = np.eye(X.shape[0]) - Xu @ Xvt @ Yvt.T @ Yvt @ Xvt.T @ Xu.T
+    M = np.eye(len(Xs)) - Xvt @ Yvt.T @ Yvt @ Xvt.T
+
+    W = Xvt @ Yvt.T
+    Wu, Ws, Wvt = np.linalg.svd(W, full_matrices=False)
+    Ws = np.diag(Ws)
+    M = np.eye(len(Xs)) - Wu @ ((Ws)**2) @ Wu.T
+    np.diag(Ws)
+
+
+
+
+
+
+
+
+
     
 #%%
     self.fit_level2
