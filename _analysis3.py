@@ -11,14 +11,109 @@ from pathlib import Path
 import sparse
 
 from .common.caching import compose, lazy, XArrayCache
-from ._helpers import config, xa_mmult
+from ._helpers import config, xa_mmult, loess
 from .covid19_time_resolved_paper import data as paper
 from ._analysis1 import analysis1
 from ._analysis2 import analysis2
 
 #%%
+def gmm_score1(x1, comp, covariance_type='full', n_perm = 0):
+    from sklearn.mixture import GaussianMixture
+
+    x = x1.data
+
+    def gmm(comp):
+        resp = np.zeros((x.shape[0], comp.max()+1))
+        resp[np.arange(resp.shape[0]), comp] = 1.0
+        gmm = GaussianMixture(
+            n_components = resp.shape[1], 
+            covariance_type = covariance_type
+        )
+        gmm._initialize(x, resp)
+        return gmm
+
+    gmm1 = gmm(comp)
+    
+    s, p = gmm1.score(x), np.nan
+    if n_perm > 0:
+        p = np.array([
+            gmm(np.random.permutation(comp)).score(x)>s
+            for _ in range(n_perm)
+        ]).mean()
+
+    x4 = xa.Dataset(coords={'donor': x1.donor.data, 't': x1.t.data})
+    x4['means'] = (('clust', 't'), gmm1.means_)
+    x4['covs'] = (('clust', 't', 't'), gmm1.covariances_)
+    x4['weights'] = (('clust',), gmm1.weights_)
+    x4['resp'] = (('donor',), comp)
+    x4['score'] = s
+    x4['p'] = p
+
+    return x4
+
+def gmm_score2(x2, n):
+    from sklearn.mixture import GaussianMixture
+    gmm = GaussianMixture(
+        n_components = n,
+        covariance_type = 'full'
+    )
+    gmm.fit(x2.data)
+    clust = gmm.predict(x2.data)
+
+    x5 = xa.Dataset(coords={'donor': x2.donor.data, 't': x2.t.data})
+    x5['means'] = (('clust', 't'), gmm.means_)
+    x5['covs'] = (('clust', 't', 't'), gmm.covariances_)
+    x5['weights'] = (('clust',), gmm.weights_)
+    x5['resp'] = (('donor',), clust)
+    x5['score'] = gmm.score(x2.data)
+
+    return x5
+
+def contingency(x6):
+    import statsmodels.api as sm
+    x6 = sm.stats.Table.from_data(x6)
+    return (
+        x6.table_orig, np.round(x6.fittedvalues), x6.resid_pearson,
+        x6.test_nominal_association().pvalue
+    )
+
+def hclust(x, l):
+    from scipy.cluster.hierarchy import dendrogram, linkage
+
+    x2 = linkage(x.data, 'average')
+    x3 = dendrogram(x2, labels=None, color_threshold=l, no_plot=True)
+
+    x4 = np.array(x3['ivl']).astype(np.int32)
+
+    x5 = pd.DataFrame({
+        'donor': x.donor.data[x4],
+        'clust': x3['leaves_color_list'], 
+        'ord': range(len(x4))
+    }).set_index('donor').to_xarray()
+    x5['linkage'] = (('node', 'link'), x2)
+    x5['threshold'] = l
+
+    return x5
+
+
+#%%
 class _analysis3:
     storage = Path(config.cache)/'analysis3'
+
+    @compose(property, lazy)
+    def donor(self):
+        x2 = self.pseudobulk.drop_dims(['cell_type', 'gene'])
+        x2 = x2.drop([
+            'tot',
+            'days_since_onset', 'days_since_hospitalized',
+            'timepoint', 'subset',
+            'assay', 'assay_ontology_term_id', 'material_type',
+            'assay_ontology_term_id', 'tissue', 
+            'tissue_ontology_term_id',
+        ])
+        x2 = x2.to_dataframe().reset_index(drop=True).drop_duplicates()
+        x2 = x2.set_index('donor').to_xarray()
+        return x2
 
     @compose(property, lazy)
     def cytokines(self):
@@ -32,16 +127,7 @@ class _analysis3:
                set_index('sample').to_xarray(),
         ])
 
-        x2 = self.pseudobulk.drop_dims(['cell_type', 'gene'])
-        x2 = x2.drop([
-            'tot',
-            'days_since_onset', 'days_since_hospitalized',
-            'timepoint', 'subset',
-            'assay', 'assay_ontology_term_id', 'material_type',
-            'assay_ontology_term_id', 'tissue', 
-            'tissue_ontology_term_id',
-        ])
-        x2 = x2.to_dataframe().reset_index(drop=True).drop_duplicates()
+        x2 = self.donor.to_dataframe().reset_index()
         x2 = x2.merge(
             x1[['DonorID']].to_dataframe().reset_index().\
                 drop_duplicates(),
@@ -388,7 +474,104 @@ class _analysis3:
         x8 = x8.reset_index().drop(columns='level_1')
         x8 = x8.set_index(['donor', 'cytokine']).to_xarray()
         return x8
-    
+
+    def _fit_level3(self, c, w):
+        x, _, _ = self.fit_level2_data
+        x = x[x.cytokine==c]
+        x6 = np.quantile(x.days_since_onset, [0,1])
+        x6 = np.linspace(*x6, 100)
+
+        x1 = x.days_since_onset.to_numpy()
+        y1 = x.level.to_numpy()
+        g = x.donor.to_numpy()
+
+        g3 = np.unique(g)
+        x3 = np.zeros((len(g3), len(x6)))
+        for i in range(len(g3)):
+            x4 = g==g3[i]
+            _, x2 = np.unique(x4, return_counts=True)
+            x4 = np.where(x4, w*1/x2[1], 1/x2[0])
+            x3[i,:] = loess(x1, y1, w=x4, t=x6)
+        x3 = xa.DataArray(
+            x3,
+            coords=[('donor', g3), ('t', x6)]
+        ).expand_dims(cytokine=[c])
+
+        return x3
+
+    def _fit_level4(self, c, w, sigma2, nt):
+        from scipy.spatial.distance import pdist, squareform
+
+        x, _, _ = self.fit_level2_data
+        x = x[x.cytokine==c]
+        x = x[x.days_since_onset<=40]
+        x6 = np.quantile(x.days_since_onset, [0,1])
+        x6 = np.linspace(*x6, 50)
+
+        x1 = x.days_since_onset.to_numpy()
+        y1 = x.level.to_numpy()
+        g = x.donor.to_numpy()
+
+        g3, g4 = np.unique(g, return_inverse=True)
+        x3 = np.zeros((len(g3), len(x6)))
+        x5 = np.ones((len(g3), len(g3)))
+        for j in range(nt):
+            for i in range(len(g3)):
+                x7 = x5[i,g4]
+                #x7 = x7/x7.sum()
+                x4 = g==g3[i]
+                x7[x4] = w*x7[x4]/x7[x4].sum()
+                x7[~x4] = x7[~x4]/x7[~x4].sum()
+                x8 = ~np.isnan(x7)
+                x3[i,:] = loess(x1[x8], y1[x8], w=x7[x8], t=x6)
+            x5 = squareform(pdist(x3)**2)
+            x5 = np.exp(-x5/sigma2)
+
+            #import matplotlib.pyplot as plt
+            #p = plt.imshow(x5)
+            #plt.show()
+            
+        x3 = xa.DataArray(
+            x3,
+            coords=[('donor', g3), ('t', x6)]
+        ).expand_dims(cytokine=[c])
+
+        return x3
+
+    @compose(property, lazy, XArrayCache())
+    def fit_level4(self):
+        x, _, _ = self.fit_level2_data
+        x = x.cytokine.drop_duplicates().to_list()
+        def _(c):
+            print(c)
+            return self._fit_level4(c, 3, 100, 10).rename('level').to_dataset()
+        x = [_(c) for c in x]
+        x = xa.concat(x, dim='cytokine')
+        return x
+
+    @compose(property, lazy, XArrayCache())
+    def fit_level4_pval1(self):
+        def f1(x1):
+            def f2():
+                x2 = gmm_score2(x1.level, 2)
+                x3 = xa.merge([
+                    x2.resp, x1.dsm_severity_score_group.drop('cytokine')
+                ]).to_dataframe()
+                _, _, _, x3 = contingency(x3)
+                return x3
+            
+            print(x1.cytokine.data)
+            x3 = [f2() for _ in range(100)]
+            x3 = np.exp(np.mean(np.log(x3)))
+            return xa.DataArray(x3, name='p')
+
+        x = self.fit_level4
+        x = xa.merge([x, self.donor.dsm_severity_score_group], join='inner')
+        x = x.sel(donor=x.dsm_severity_score_group!='')
+        x = x.groupby('cytokine').apply(f1)
+        return x
+        
+
 analysis3 = _analysis3()
 
 #%%
