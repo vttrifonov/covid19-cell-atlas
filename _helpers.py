@@ -103,3 +103,19 @@ def loess(x, y, w = None, t = None):
         except ri.embedded.RRuntimeError:
             f = np.full(len(t), np.nan)
         return f
+
+def xa_pca(x, dims, pc):
+    x = x.copy()
+    dims = tuple(dims)
+    d = np.array(list(x.sizes.keys()))
+    d = tuple(d[~np.isin(d, dims)])
+    x = x.transpose(*(d+dims))
+    m = x.mean(dim=dims[0])
+    x = x - m
+    u, s, vt = np.linalg.svd(x.data, full_matrices=False)
+    r = xa.Dataset(coords=x.coords)
+    r['mean'] = m
+    r['u'] = ((d+(dims[0], pc)), u)
+    r['s'] = ((d+(pc,)), s)
+    r['v'] = ((d+(dims[1], pc)), vt.T)
+    return r
