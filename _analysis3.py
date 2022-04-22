@@ -507,7 +507,7 @@ class _analysis3:
         x = x[x.days_since_onset<=40]
         #x6 = np.quantile(x.days_since_onset, [0,1])
         x6 = [2.0, 37.0]
-        x6 = np.linspace(*x6, 50)
+        x6 = np.linspace(*x6, num=36)
 
         x1 = x.days_since_onset.to_numpy()
         y1 = x.level.to_numpy()
@@ -604,6 +604,3 @@ if __name__ == '__main__':
     self = analysis3
 
 # %%
-    x = self.fit_level4_deg[['q']].to_dataframe().reset_index()
-    x = x[x.q<0.05]
-    x = x[['t']].value_counts().reset_index()
