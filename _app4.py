@@ -91,41 +91,105 @@ class _app4:
     def fit_level4_deg(self):
         x = self.analysis.fit_level4_deg
         x = x.to_dataframe().reset_index()
+        x = x.sort_values('q')
         return x
 
-    @compose(property, lazy)
-    def fit_level4_pca(self):    
+    def plot3_data(self, c, t):
+        x = self.fit_level4
+        x = x.sel(cytokine=c)
+        x = x.sel(t=t)
+        x = x.to_dataframe().reset_index()
+        return x
+
+    def fit_level4_pca(self, n = None):    
         from sklearn.decomposition import PCA
+        
+        if n is None:
+            n = self.cytokines.shape[0]
+        
+        x1 = self.cytokines.iloc[:n].cytokine.to_list()
 
         x9 = self.fit_level4.level
+        x9 = x9.sel(cytokine=x1)
         pca = PCA(n_components=2)
+        def _(x):
+            f = pca.fit(x)
+            return f.transform(x), f.components_
         x10 = xa.apply_ufunc(
-            lambda x: pca.fit_transform(x), x9,
+            _, x9,
             input_core_dims=[['donor', 'cytokine']],
-            output_core_dims=[['donor', 'pc']],
+            output_core_dims=[['donor', 'pc'], ['pc', 'cytokine']],
             vectorize=True
         )
-        x10 = x10.assign_coords(pc=['pc1', 'pc2'])
-        x10 = x10.rename('value')
+        x10 = xa.merge([
+            x10[0].assign_coords(pc=['pc1', 'pc2']).rename('trans'),
+            x10[1].assign_coords(pc=['pc1', 'pc2']).rename('comp')
+        ])
 
         for i in range(1, x10.sizes['t']):
             for j in range(2):
-                x12 = x10[i-1,:,j]
-                x13 = x10[i,:,j]
+                x12 = x10.trans[i-1,:,j]
+                x13 = x10.trans[i,:,j]
                 x14 = [
                     ((x12+x13)**2).sum().data,
                     ((x12-x13)**2).sum().data
                 ]
                 x14 = 2*np.argmin(x14)-1
-                x10[i,:,j] = x14*x13
+                x10.trans[i,:,j] = x14*x13
+                x10.comp[i,j,:] = x14*x10.comp[i,j,:]
     
         x1 = self.analysis.donor[['donor', 'dsm_severity_score', 'dsm_severity_score_group', 'status']]
         x1 = x1.to_dataframe().drop_duplicates()
-        x2 = x10.to_dataframe().reset_index()
-        x2 = x2.pivot_table(index=['t', 'donor'], columns='pc', values='value').reset_index()
+        x2 = x10.trans.to_dataframe().reset_index()
+        x2 = x2.pivot_table(index=['t', 'donor'], columns='pc', values='trans').reset_index()
         x2 = x2.merge(x1, on='donor')
         x2 = x2[x2.dsm_severity_score_group!='']
-        return x2
+
+        x3 = x10.comp.to_dataframe().reset_index()
+        x3 = x3.pivot_table(index=['t', 'cytokine'], columns='pc', values='comp').reset_index()
+
+        return x2, x3
+
+    def plot4_data(self, n):
+        x2, x6 = self.fit_level4_pca(n)
+
+        x4 = np.quantile(x2.pc1, [0,1])    
+        x5 = np.quantile(x2.pc2, [0,1])
+
+        x3 = {t: x for t, x in x2.groupby('t')}
+
+        x8 = {
+            t: pd.Categorical(x.donor, categories=x.sort_values('pc1').donor).dtype
+            for t,x in x2.groupby('t')
+        }
+        x9 = {
+            t: pd.Categorical(x.cytokine, categories=x.sort_values('pc1').cytokine).dtype
+            for t,x in x6.groupby('t')
+        }
+        x7 = self.fit_level4
+        x7 = x7.sel(cytokine=x6.cytokine.drop_duplicates().to_list())
+        x7 = x7.level.to_dataframe().reset_index()
+        x7['level'] = x7.level - x7.groupby(['t', 'cytokine'])['level'].transform('mean')
+        x7 = {
+            t: x.assign(
+                donor=lambda x: x.donor.astype(x8[t]),
+                cytokine=lambda x: x.cytokine.astype(x9[t])
+            )
+            for t, x in x7.groupby('t') 
+        }
+
+        x11 = {
+            t:x.assign(
+                donor=lambda x: x.donor.astype(x8[t])
+            )
+            for t, x in x2[['t', 'donor', 'dsm_severity_score_group']].groupby('t') 
+        }
+
+        return [
+            [x3, x4, x5],
+            x7, x11
+        ]
+
 
 app4 = _app4()
 
@@ -182,12 +246,21 @@ if __name__ == '__main__':
     )
 
 #%%
-    x = self.fit_level4_deg
+    self.fit_level4_deg
+
+#%% 
+    x = self.plot3_data('ST2/IL-33R', 12)
+
+    print(
+        ggplot(x)+aes('dsm_severity_score_group', 'level')+
+            geom_boxplot()+geom_point()
+    )
+
 
 #%%
-    x2 = self.fit_level4_pca
-    x4 = np.quantile(x2.pc1, [0,1])
-    x5 = np.quantile(x2.pc2, [0,1])
+    x3, x7, x11  = self.plot4_data(10)
+    x3, x4, x5 = x3
+
     x3 = [
         ggplot(x)+
             aes(
@@ -196,8 +269,28 @@ if __name__ == '__main__':
             )+
             geom_point()+
             lims(x=x4, y=x5)
-        for t, x in x2.groupby('t')
+        for x in x3.values()
     ]
+    x3[9]
+
+    x10 = [
+        ggplot(x)+
+            aes('donor', 'cytokine', fill='np.clip(level, -5, 5)')+
+            geom_tile()+
+            scale_fill_gradient2(low='blue', mid='white', high='red', midpoint=0)+
+            theme(axis_text_x=element_blank())
+        for x in x7.values()
+    ]
+    x10[9]
+
+    x12 = [
+        ggplot(x)+
+            aes('donor', y=1, fill='dsm_severity_score_group')+
+            geom_tile()+
+            theme(axis_text_x=element_blank(), axis_text_y=element_blank())
+        for x in x11.values()
+    ]
+    x12[9]
 
     #from matplotlib import rc
     #rc('animation', html='html5')
