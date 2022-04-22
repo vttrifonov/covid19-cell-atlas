@@ -53,7 +53,9 @@ class _app4:
                     resp = lambda x: x.group,
                     donor = lambda x: x.group.astype(str),
                     group = lambda x: 'mean_'+x.group.astype(str)
-                )
+                ),
+
+            c
         ]
 
     def plot2_data(self, c, d):
@@ -84,6 +86,12 @@ class _app4:
         x6 = x6[x6.level>=x7[0]]
         x6 = x6[x6.level<=x7[1]]
         return x1, x6
+
+    @compose(property, lazy)
+    def fit_level4_deg(self):
+        x = self.analysis.fit_level4_deg
+        x = x.to_dataframe().reset_index()
+        return x
 
     @compose(property, lazy)
     def fit_level4_pca(self):    
@@ -155,10 +163,10 @@ if __name__ == '__main__':
     )   
 
 #%%
-    x5 = self.plot1_data('IL-1ra/IL-1F3')
+    x5 = self.plot1_data('ST2/IL-33R')
     x5 = x5[1]
     x5 = x5[x5.resp==0]
-    c, d = 'IL-1ra/IL-1F3', x5.donor.iloc[0]
+    c, d = 'ST2/IL-33R', x5.donor.iloc[3]
     x6, x7 = self.plot2_data(c, d)
 
     print(
@@ -172,6 +180,9 @@ if __name__ == '__main__':
             theme(legend_position='none')+
             scale_color_manual(['lightgray', 'red'])
     )
+
+#%%
+    x = self.fit_level4_deg
 
 #%%
     x2 = self.fit_level4_pca
