@@ -20,7 +20,8 @@ renv::install(c(
   'reshape2',
   'gridExtra',
   'bioc::fgsea',
-  'kableExtra'
+  'kableExtra',
+  'cowplot'
 #  'readxl',
 #  'mime'
 ))
