@@ -505,7 +505,8 @@ class _analysis3:
         x, _, _ = self.fit_level2_data
         x = x[x.cytokine==c]
         x = x[x.days_since_onset<=40]
-        x6 = np.quantile(x.days_since_onset, [0,1])
+        #x6 = np.quantile(x.days_since_onset, [0,1])
+        x6 = [2.0, 37.0]
         x6 = np.linspace(*x6, 50)
 
         x1 = x.days_since_onset.to_numpy()
@@ -570,12 +571,39 @@ class _analysis3:
         x = x.sel(donor=x.dsm_severity_score_group!='')
         x = x.groupby('cytokine').apply(f1)
         return x
-        
 
+    @compose(property, lazy, XArrayCache())
+    def fit_level4_deg(self):
+        import statsmodels.formula.api as smf
+        from statsmodels.stats.anova import anova_lm
+        from .sigs.fit import multipletests
+
+        def f1(x):
+            x3 = smf.ols('level~1', data=x).fit()
+            x4 = smf.ols('level~dsm_severity_score_group', data=x).fit()
+            x5 = anova_lm(x3, x4).loc[[1],:].reset_index(drop=True)
+            x5 = pd.concat([x5, pd.DataFrame(x4.params).T], axis=1)
+            return x5
+        
+        x1 = self.fit_level4.level
+        x1 = xa.merge([x1, self.donor.dsm_severity_score_group], join='inner')
+        x1 = x1.sel(donor=x1.dsm_severity_score_group!='')
+        x1 = x1.to_dataframe().reset_index()
+        x1 = x1.groupby(['cytokine', 't'])
+
+        x8 = x1.apply(f1)
+        x8 = x8.reset_index().drop(columns=['level_2'])
+        x8['q'] = x8.groupby('t')['Pr(>F)'].transform(multipletests, method='fdr_bh')
+        x8 = x8.set_index(['cytokine', 't']).to_xarray()
+        return x8
+        
 analysis3 = _analysis3()
 
 #%%
 if __name__ == '__main__':
     self = analysis3
 
-#%%
+# %%
+    x = self.fit_level4_deg[['q']].to_dataframe().reset_index()
+    x = x[x.q<0.05]
+    x = x[['t']].value_counts().reset_index()
