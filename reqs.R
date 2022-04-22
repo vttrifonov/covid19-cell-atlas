@@ -19,7 +19,8 @@ renv::install(c(
   'glue',
   'reshape2',
   'gridExtra',
-  'bioc::fgsea'
+  'bioc::fgsea',
+  'kableExtra'
 #  'readxl',
 #  'mime'
 ))
