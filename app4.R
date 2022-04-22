@@ -7,6 +7,8 @@
     library(reticulate)
     library(glue)
     library(kableExtra)
+    library(gridExtra)
+    library(cowplot)
     source('helpers.R')
     source('common/module.R')
     load.module('common')
@@ -55,21 +57,12 @@
         })
 
     app4 %>%
-        lazy_prop(plot4_data, {
-            x2 <- py_app$fit_level4_pca %>% data.table
-            x4 <- x2$pc1 %>% range
-            x5 <- x2$pc2 %>% range
-            x3 <- x2 %>% split(x2$t) %>%
-                lapply(function(x) {
-                    ggplot(x)+
-                        aes(
-                            pc1, pc2,
-                            color=dsm_severity_score_group
-                        )+
-                        geom_point()+
-                        lims(x=x4, y=x5)
-                })
-        })
+        lazy_prop(plot3_data, reactive({
+            row <- req(this$input$deg_rows_selected)
+            row <-  this$deg[row, ]
+            data <- py_app$plot3_data(row$cytokine, row$t)
+            data
+        }))
 
     app4$ui <- {
         fluidPage(
@@ -97,6 +90,7 @@
                     plotOutput('plot1', height=400)
                 )
             ),
+
             fluidRow(
                 DTOutput('donors')
             ),
@@ -105,13 +99,24 @@
                     plotOutput('plot2', height=200)
                 )
             ),
-           fluidRow(
+
+            fluidRow(
                 DTOutput('deg')
             ),
-            sliderInput('t', 'T:', min=1, max=50, value=0),
             fluidRow(
                 column(8,
-                    plotOutput('plot4', height=200)
+                    plotOutput('plot3', height=300)
+                )
+            ),
+
+            sliderInput(
+                'pca_n', 'PCA number of top cytokines',
+                min=2, max=nrow(app4$cytokines), value=nrow(app4$cytokines)
+            ),
+            sliderInput('pca_t', 'PCA timepoint', min=2, max=37, value=2),
+            fluidRow(
+                column(8,
+                    uiOutput('plot4_container')
                 )
             )
         )
@@ -200,9 +205,82 @@
                     )
             })
 
+            output$plot3 <- renderPlot({
+                x <- this$plot3_data()
+                ggplot(x)+
+                    aes(dsm_severity_score_group, level)+
+                    geom_boxplot()+
+                    geom_point()
+            })
+
+            output$plot4_container <- renderUI({
+                 n <- req(this$input$pca_n) %>% as.integer
+                 plotOutput('plot4', height=200+100+20*(n+1.5))
+            })
+
             output$plot4 <- renderPlot({
-                t <- req(input$t)
-                this$plot4_data[[t]]
+                t <- req(this$input$pca_t)
+                n <- req(this$input$pca_n) %>% as.integer
+
+                x1 <- py_app$plot4_data(n)
+
+                .get <- function(l, t) {
+                    t1 <- names(l) %>% as.numeric
+                    i <- (t1-t) %>% abs %>% which.min
+                    l[[i]]
+                }
+
+                x2 <- x1[[1]]
+                x3 <- .get(x1[[2]], t) %>% py_to_r
+                x4 <- .get(x1[[3]], t) %>% py_to_r
+
+                x5 <- .get(x2[[1]], t) %>% py_to_r
+                x6 <- x2[[2]]
+                x7 <- x2[[3]]
+
+                x8 <- ggplot(x5)+
+                    aes(
+                        pc1, pc2,
+                        color=dsm_severity_score_group
+                    )+
+                    geom_point()+
+                    lims(x=x6, y=x7)
+
+                clip <- function(x, l, h)
+                    ifelse(x<l, l, ifelse(x>h, h, x))
+                x9 <- ggplot(x3)+
+                    aes(
+                        donor, cytokine,
+                        fill=clip(level, -5, 5)
+                    )+
+                    geom_tile()+
+                    scale_fill_gradient2(
+                        low='blue', mid='white', high='red', midpoint=0
+                    )+
+                    theme(
+                        axis.text.x=element_blank(),
+                        legend.position='right'
+                    )+
+                    labs(x='', y='')
+
+                x10 <- ggplot(x4)+
+                    aes(donor, y=1, fill=dsm_severity_score_group)+
+                    geom_tile()+
+                    theme(
+                        axis.text.x=element_blank(),
+                        axis.text.y=element_blank(),
+                        legend.position='none'
+                    )+
+                    labs(y='')
+
+                plot_grid(
+                    x8,
+                    plot_grid(
+                        x9, x10, axis='lr', align='v',
+                        ncol=1, rel_heights=c(n, 1.5)
+                    ),
+                    ncol=1, rel_heights=c(200, 100+20*(n+1.5))
+                )
             })
         })
 
@@ -219,11 +297,13 @@ if (FALSE) {
 
     this$input <- reactiveValues(
         cytokines_rows_selected=1,
-        donors_rows_selected=1
+        donors_rows_selected=1,
+        pca_t = 10.0,
+        pca_n = 10
     )
-    this$input$donors_rows_selected <- 2
-    x <- isolate(this$plot2_data())
-    x[[4]]
+
+    t <- isolate(this$input$pca_t)
+    n <- isolate(this$input$pca_n) %>% as.integer
 }
 
 
